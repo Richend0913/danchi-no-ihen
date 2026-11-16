@@ -1,146 +1,191 @@
 <!DOCTYPE html>
 <!--
-  『団地の異変』 — 夜の団地の廊下を舞台にした異変探しゲーム（単一HTMLファイル）
-  シーンは写真（assets/web/*.webp）。異変は ANOMALIES 定義（id / name / img / fx）で切り替える。
+  『団地の異変』探索版 v2 — 夜の団地を歩いて自分の部屋（304号室）まで帰る異変探しゲーム（単一HTMLファイル）
+  写真は assets/web/*.webp。エリアと異変は AREAS 定義（key / name / base / anomalies[{id,name,img}]）。
 
   【遊び方】
-  同じ廊下を繰り返し歩きます。前の周と比べて「異変」があったら「引き返す」、
-  なければ「進む」。正解するとカウンタが 0 → 8 へ進み、間違えると 0 に戻ります。
-  8 に到達すればクリアです。
-  ・1周目（カウンタ0の最初の周）は必ず異変なし。廊下の基準を覚える周です。
-  ・2周目以降は各周50%の確率で異変が1つ発生します。
-  ・間違えたときは、正解の異変を開示してからリセットするので、学習できます。
-  ・操作: ボタン / タップ / キーボード（→ = 進む、← = 引き返す）
-  ・歩行が最後まで進むと自動で「進む」判定になります。
+  入口 → 外階段 → 駐輪場 → ゴミ置き場 → 公園 → 自分の棟の廊下 の6エリアを順に進む。
+  ・各エリアはまず「確認パス」（いつもの景色。約5秒で自動的に本番へ／タップ・すすむ・→ でスキップ）。
+  ・続く「本番パス」は 50% の確率で異変が1つ混ざる（ゲーム開始直後の最初の入口だけは必ず正常）。
+  ・異変がないと思えば「すすむ」（→）、あると思えば「もどる」（←）。
+  ・正解で次のエリアへ。6エリア目を正解するとクリア。間違えると驚かし演出の後、正解を開示して入口からやり直し。
+  ・正しく見抜いた異変は「見つけた異変」に記録され、リセットしても消えない（クリア画面に一覧表示）。
 
   【検証用フック】window.__DANCHI
-  ・state() → {counter, pass, anomalyId|null, phase} を返す
-      phase は 'title' | 'walking' | 'feedback' | 'clear'
-  ・forceNextPassAnomaly(id|null) → 次の周の異変を固定する
-      id は異変リストの id（例 'cat'）。null を渡すと「異変なし」を固定する。
-      未指定の周は通常ルール（1周目は無し、それ以外は50%）で決まる。
-  ・judge(hasAnomaly) → 判定を実行する（true = 異変あり「引き返す」）
+  ・state() → { area, areaKey, phase, anomaly, anomalyId, found:[], startedAt, misses }
+      area: 0..5 / phase: 'title' | 'card' | 'confirm' | 'live' | 'scare' | 'reveal' | 'clear'
+      anomaly: 本番パスの異変名（なければ null） / found: 見抜いた異変名の配列 / startedAt: 開始時刻(ms, Date.now)
+  ・forceArea(i) → エリア i（0..5）の入場からやり直す（タイトル中ならゲームを開始する）
+  ・forceNextAnomaly(name|null) → 次の本番パスの異変を固定（異変名 または id。null で「異変なし」固定）
+      そのエリアに存在しない異変を指定した場合は無視して通常ルールで決める。
+  ・judge(bool) → 判定（true = 異変あり「もどる」）。確認パス中に呼ぶと本番パスを開始してから判定する。
 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>団地の異変｜異変探しゲーム</title>
-<meta name="description" content="夜の団地の廊下を繰り返し歩いて「異変」を探すゲーム。異変があれば引き返し、なければ進む。8つ正解で脱出。無料・登録不要、スマホでも遊べます。">
+<meta name="description" content="夜の団地を歩いて自分の部屋まで帰る、探索型の異変探しゲーム。エントランス・階段・駐輪場・ゴミ置き場・公園・自分の棟——6つのエリアで異変を見抜いて進め。無料・登録不要、スマホでも遊べます。">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="団地の異変">
 <meta property="og:title" content="団地の異変｜異変探しゲーム">
-<meta property="og:description" content="夜の団地の廊下を繰り返し歩いて「異変」を探すゲーム。異変があれば引き返し、なければ進む。8つ正解で脱出。無料・登録不要。">
+<meta property="og:description" content="夜の団地を歩いて自分の部屋まで帰る、探索型の異変探しゲーム。6つのエリアで異変を見抜いて進め。無料・登録不要。">
 <meta property="og:url" content="https://richend0913.github.io/danchi-no-ihen/">
 <meta property="og:image" content="https://richend0913.github.io/danchi-no-ihen/ogp.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="団地の異変｜異変探しゲーム">
-<meta name="twitter:description" content="夜の団地の廊下を繰り返し歩いて「異変」を探すゲーム。異変があれば引き返し、なければ進む。8つ正解で脱出。無料・登録不要。">
+<meta name="twitter:description" content="夜の団地を歩いて自分の部屋まで帰る、探索型の異変探しゲーム。6つのエリアで異変を見抜いて進め。無料・登録不要。">
 <meta name="twitter:image" content="https://richend0913.github.io/danchi-no-ihen/ogp.png">
 <style>
 :root{
-  --uw: clamp(168px, 46vw, 252px);
-  --ink:#dfe7ee;
-  --dim:#8fa5b8;
-  --panel:#131c26;
-  --line:#33465a;
+  --ink:#e3eaf0;
+  --dim:#93a7b8;
+  --panel:rgba(15,22,30,.94);
+  --line:#34485c;
+  --ctrlH:120px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{
   font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif;
-  background:#0b0f14;color:var(--ink);overflow:hidden;
-  -webkit-tap-highlight-color:transparent;
+  background:#05080c;color:var(--ink);overflow:hidden;
+  -webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;
 }
-#app{display:flex;flex-direction:column;height:100vh;height:100dvh;max-width:860px;margin:0 auto}
 
-/* ===== header ===== */
-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px 4px}
-#logo{font-size:13px;letter-spacing:.28em;color:var(--dim);white-space:nowrap}
-#counterWrap{text-align:center;line-height:1}
-#counter{font-size:clamp(28px,7.5vw,42px);font-weight:800;letter-spacing:.04em;font-variant-numeric:tabular-nums}
-#counterWrap .label{display:block;font-size:11px;color:var(--dim);letter-spacing:.42em;margin-top:3px;text-indent:.42em}
-#muteBtn{background:#1b2530;border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:8px 11px;font-size:17px;cursor:pointer;line-height:1}
-#muteBtn:active{transform:scale(.96)}
-@media (max-width:480px){ #logo{display:none} header{justify-content:space-between} }
-
-/* ===== scene（写真レイヤー） ===== */
-#scene{
-  position:relative;flex:1;min-height:230px;overflow:hidden;background:#05080c;
-  border-top:1px solid #3c4f61;border-bottom:1px solid #3c4f61;
-}
-/* .stage は写真のアスペクト比(1280x853)を保ったまま #scene を覆うサイズ（JSで算出 = object-fit:cover 相当）。
-   ただし縦長スマホなどで左右の異変（ポスター・傘・靴）が画面外に切れないよう、切り抜きは上限付き。
-   余白は同じ写真をぼかした #backdrop で埋める。 */
+/* ===== scene（全画面の写真レイヤー） ===== */
+#scene{position:fixed;inset:0;overflow:hidden;background:#05080c}
 #backdrop{
-  position:absolute;inset:-40px;background:#05080c center/cover no-repeat;
-  filter:blur(22px) brightness(.42) saturate(.8);transition:background-image .6s ease;
+  position:absolute;inset:-50px;background:#05080c center/cover no-repeat;
+  filter:blur(24px) brightness(.38) saturate(.8);transition:background-image .5s ease;
 }
-.stage{position:absolute;left:50%;top:50%;width:100%;aspect-ratio:1280/853;overflow:visible}
-.layer{
-  position:absolute;inset:0;opacity:0;transition:opacity .6s ease;
-  transform-origin:50% 46%;will-change:transform,opacity;
+/* 写真を置く領域（下部の操作バーを除いた部分）。写真はこの中に cover 相当で収める（縦長画面では切り抜き上限付き） */
+#stageBox{position:absolute;left:0;right:0;top:0;bottom:var(--ctrlH);overflow:hidden;cursor:pointer}
+#shaker{position:absolute;inset:0}
+#shaker.shake{animation:shake .55s linear}
+@keyframes shake{
+  0%{transform:translate(0,0)} 8%{transform:translate(-14px,6px) rotate(-.6deg)} 16%{transform:translate(12px,-8px) rotate(.5deg)}
+  24%{transform:translate(-10px,-4px)} 32%{transform:translate(9px,7px) rotate(-.4deg)} 44%{transform:translate(-7px,3px)}
+  56%{transform:translate(6px,-5px)} 70%{transform:translate(-4px,2px)} 85%{transform:translate(2px,-1px)} 100%{transform:translate(0,0)}
 }
+#stage{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);overflow:hidden}
+.layer{position:absolute;inset:0;opacity:0;transition:opacity .5s ease}
 .layer.on{opacity:1}
-.layer img{position:absolute;inset:0;width:100%;height:100%;display:block;user-select:none;-webkit-user-drag:none}
-/* light-flicker: 中央の蛍光灯付近だけを暗くする明滅オーバーレイ（座標は写真基準の%） */
-.flick{
-  position:absolute;left:38%;top:-6%;width:28%;height:34%;pointer-events:none;opacity:0;
-  background:radial-gradient(ellipse 50% 50% at 50% 48%,rgba(6,9,13,.88) 0%,rgba(6,9,13,.72) 34%,rgba(6,9,13,.3) 62%,rgba(6,9,13,0) 100%);
+.layer img{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;
+  transform-origin:50% 48%;will-change:transform;-webkit-user-drag:none;
 }
-.layer.flicker .flick{animation:flick 1.1s steps(1,end) infinite}
-@keyframes flick{
-  0%,100%{opacity:0} 7%{opacity:.95} 9%{opacity:0} 21%{opacity:.7} 23%{opacity:0}
-  48%{opacity:.95} 50%{opacity:.2} 52%{opacity:.95} 55%{opacity:0} 78%{opacity:.85} 80%{opacity:0}
+#scareImg{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;pointer-events:none;z-index:5;
+  filter:contrast(1.7) brightness(1.25) saturate(.25) sepia(.6) hue-rotate(-30deg);transform:scale(1.12);
 }
 
-/* overlays: grain / vignette / flash */
-#grainSvg{position:absolute;inset:-60px;z-index:8;pointer-events:none;opacity:.055;animation:grainShift .9s steps(4) infinite}
+/* overlays: grain / vignette / flicker / flash */
+#grainSvg{position:absolute;inset:-60px;z-index:8;pointer-events:none;opacity:.06;animation:grainShift .9s steps(4) infinite}
 @keyframes grainShift{
   0%{transform:translate(0,0)} 25%{transform:translate(-18px,10px)}
   50%{transform:translate(12px,-14px)} 75%{transform:translate(-8px,-6px)} 100%{transform:translate(0,0)}
 }
-#vignette{position:absolute;inset:0;z-index:9;pointer-events:none;background:radial-gradient(ellipse at 50% 46%,rgba(0,0,0,0) 52%,rgba(2,5,10,.6) 100%)}
-#flash{position:absolute;inset:0;z-index:10;pointer-events:none;opacity:0;transition:opacity .45s ease}
-#flash.good{background:radial-gradient(ellipse at 50% 45%,rgba(180,255,205,.34),rgba(180,255,205,.10) 70%)}
-#flash.bad{background:radial-gradient(ellipse at 50% 45%,rgba(140,10,10,.42),rgba(30,0,0,.62) 100%)}
-
-/* ===== message & controls ===== */
-#msg{
-  min-height:1.7em;padding:8px 14px 2px;text-align:center;
-  font-size:clamp(15px,4.2vw,19px);font-weight:600;letter-spacing:.02em;
+#vignette{position:absolute;inset:0;z-index:9;pointer-events:none;background:radial-gradient(ellipse at 50% 46%,rgba(0,0,0,0) 48%,rgba(2,5,10,.66) 100%)}
+#flicker{position:absolute;inset:0;z-index:10;pointer-events:none;opacity:0;background:#020407}
+#flicker.go{animation:flicker .8s steps(1,end) 1}
+@keyframes flicker{
+  0%{opacity:.85} 10%{opacity:0} 18%{opacity:.7} 24%{opacity:.1} 30%{opacity:.9}
+  44%{opacity:0} 56%{opacity:.6} 62%{opacity:0} 76%{opacity:.8} 84%{opacity:0} 100%{opacity:0}
 }
-#msg.ok{color:#9fe8b1}
-#msg.ng{color:#ff9a8a}
-#msg.hint{color:var(--dim);font-weight:500;font-size:clamp(13px,3.6vw,16px)}
-#controls{display:flex;gap:12px;padding:10px 14px calc(14px + env(safe-area-inset-bottom))}
+#flash{position:absolute;inset:0;z-index:11;pointer-events:none;opacity:0;transition:opacity .4s ease}
+#flash.good{background:radial-gradient(ellipse at 50% 45%,rgba(180,255,205,.22),rgba(180,255,205,.06) 70%)}
+#flash.bad{background:radial-gradient(ellipse at 50% 45%,rgba(170,10,10,.45),rgba(40,0,0,.75) 100%);transition:none}
+
+/* ===== HUD ===== */
+#hud{
+  position:fixed;left:0;right:0;top:0;z-index:12;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+  padding:calc(10px + env(safe-area-inset-top)) 14px 22px;pointer-events:none;
+  background:linear-gradient(180deg,rgba(3,6,10,.62),rgba(3,6,10,0));
+}
+#hud > *{pointer-events:auto}
+#areaInfo{line-height:1.25}
+#areaNo{font-size:12px;letter-spacing:.3em;color:var(--dim)}
+#areaName{font-size:clamp(16px,4.4vw,20px);font-weight:700;letter-spacing:.08em}
+#phaseTag{
+  display:inline-block;margin-top:6px;padding:3px 10px;border-radius:999px;font-size:12px;letter-spacing:.18em;
+  border:1px solid var(--line);background:rgba(10,16,22,.7);color:var(--dim)
+}
+#phaseTag.live{color:#ffd9a8;border-color:#7a5a36}
+#hudRight{display:flex;align-items:center;gap:10px}
+#foundCount{font-size:12px;color:var(--dim);letter-spacing:.1em;white-space:nowrap}
+#muteBtn{background:rgba(20,28,36,.8);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:8px 11px;font-size:17px;cursor:pointer;line-height:1}
+#muteBtn:active{transform:scale(.96)}
+#hud.hide #areaInfo,#hud.hide #foundCount{visibility:hidden}
+
+/* ===== controls（画面下部に大きく） ===== */
+#controls{
+  position:fixed;left:0;right:0;bottom:0;z-index:12;
+  padding:8px 14px calc(14px + env(safe-area-inset-bottom));
+  background:linear-gradient(180deg,rgba(3,6,10,.35),rgba(3,6,10,.85));
+}
+#msg{
+  min-height:1.6em;text-align:center;margin-bottom:8px;
+  font-size:clamp(13px,3.8vw,16px);font-weight:600;letter-spacing:.04em;color:var(--dim);
+  word-break:auto-phrase;
+}
+#msg.ok{color:#a6ecb8}
+#msg.ng{color:#ff9d8d}
+#btnRow{display:flex;gap:12px;max-width:720px;margin:0 auto}
 button.judge{
-  flex:1;padding:15px 8px 12px;border-radius:14px;cursor:pointer;color:var(--ink);
-  font-size:clamp(18px,5vw,23px);font-weight:800;letter-spacing:.03em;line-height:1.15;
+  flex:1;padding:16px 8px 13px;border-radius:16px;cursor:pointer;color:var(--ink);
+  font-size:clamp(20px,5.6vw,25px);font-weight:800;letter-spacing:.08em;line-height:1.15;
   border:1px solid var(--line);font-family:inherit;
 }
-button.judge small{display:block;font-size:clamp(11px,3vw,13px);font-weight:600;color:#b9c9d8;margin-top:3px;letter-spacing:.14em}
-#backBtn{background:linear-gradient(180deg,#6e3d34,#57302a)}
-#fwdBtn{background:linear-gradient(180deg,#38607a,#2b4c61)}
+button.judge small{display:block;font-size:clamp(11px,3vw,13px);font-weight:600;color:#bccbd8;margin-top:4px;letter-spacing:.14em}
+#backBtn{background:linear-gradient(180deg,#6e3d34,#53302a)}
+#fwdBtn{background:linear-gradient(180deg,#38607a,#2a4b5f)}
 button.judge:active:not(:disabled){transform:scale(.98)}
-button.judge:disabled{opacity:.45;cursor:default}
+button.judge:disabled{opacity:.38;cursor:default}
 
-/* ===== title / clear overlays ===== */
+/* ===== エリア名カード ===== */
+#card{
+  position:fixed;inset:0;z-index:15;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:#030507;opacity:0;pointer-events:none;transition:opacity .35s ease;text-align:center;
+}
+#card.on{opacity:1;pointer-events:auto}
+#cardNo{font-size:13px;letter-spacing:.42em;color:var(--dim);text-indent:.42em;margin-bottom:12px}
+#cardName{font-size:clamp(26px,7.5vw,40px);font-weight:700;letter-spacing:.2em;text-indent:.2em}
+#cardSub{margin-top:14px;font-size:13px;color:#6f8193;letter-spacing:.2em}
+
+/* ===== 判定ミスの開示 ===== */
+#reveal{
+  position:fixed;left:50%;top:44%;transform:translate(-50%,-50%);z-index:14;width:min(92vw,520px);
+  background:rgba(14,6,6,.9);border:1px solid #6a2a24;border-radius:16px;padding:22px 20px 18px;text-align:center;
+  box-shadow:0 18px 50px rgba(0,0,0,.6);cursor:pointer;
+}
+#reveal[hidden]{display:none}
+#revealHead{font-size:clamp(20px,5.6vw,26px);font-weight:800;color:#ff9d8d;letter-spacing:.1em;margin-bottom:8px}
+#revealBody{font-size:clamp(15px,4.2vw,18px);line-height:1.7}
+#revealBody b{color:#ffd9a8}
+#revealFoot{margin-top:12px;font-size:12.5px;color:var(--dim);letter-spacing:.08em}
+
+/* ===== title / clear ===== */
 .overlay{
   position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
-  background:rgba(5,9,14,.78);padding:20px;
+  background:rgba(4,7,11,.72);padding:20px;overflow:auto;
 }
 .overlay[hidden]{display:none}
 .panel{
-  max-width:520px;width:100%;text-align:center;background:var(--panel);
+  max-width:520px;width:100%;text-align:center;background:var(--panel);margin:auto;
   border:1px solid var(--line);border-radius:18px;padding:30px 24px 26px;
   box-shadow:0 18px 50px rgba(0,0,0,.55);
 }
 .panel h1{font-size:clamp(30px,8.5vw,44px);letter-spacing:.14em;margin-bottom:8px}
 .panel .sub{color:var(--dim);font-size:clamp(13px,3.8vw,15px);letter-spacing:.08em;margin-bottom:18px}
-.panel .how{font-size:clamp(14px,4.2vw,17px);line-height:1.9;margin-bottom:22px}
-.panel .result{font-size:clamp(16px,4.6vw,20px);line-height:1.8;margin-bottom:22px}
-.panel .result b{font-size:1.25em;font-variant-numeric:tabular-nums}
+.panel .how{font-size:clamp(14px,4vw,16px);line-height:1.9;margin-bottom:22px}
+.panel .result{font-size:clamp(16px,4.6vw,19px);line-height:1.8;margin-bottom:12px}
+.panel .result b{font-size:1.2em;font-variant-numeric:tabular-nums}
+#foundList{list-style:none;margin:0 auto 22px;max-width:380px;text-align:left;font-size:clamp(13px,3.8vw,15px);line-height:1.7}
+#foundList li{padding:5px 10px;border-bottom:1px solid #223241}
+#foundList li::before{content:"◆ ";color:#c98a5a}
+#foundList li.none{color:var(--dim);text-align:center}
+#foundList li.none::before{content:""}
+.foundHead{font-size:13px;color:var(--dim);letter-spacing:.2em;margin-bottom:6px}
 .bigbtn{
   display:inline-block;background:linear-gradient(180deg,#38607a,#2b4c61);color:var(--ink);
   border:1px solid var(--line);border-radius:12px;padding:13px 30px;cursor:pointer;
@@ -149,7 +194,7 @@ button.judge:disabled{opacity:.45;cursor:default}
 .bigbtn:active:not(:disabled){transform:scale(.97)}
 .bigbtn:disabled{opacity:.55;cursor:default}
 #shareLink{
-  display:inline-block;margin-right:10px;padding:13px 22px;border-radius:12px;
+  display:inline-block;margin:0 8px 10px 0;padding:13px 22px;border-radius:12px;
   background:#0f141a;border:1px solid var(--line);color:var(--ink);text-decoration:none;
   font-size:clamp(15px,4.4vw,18px);font-weight:700;
 }
@@ -157,51 +202,76 @@ button.judge:disabled{opacity:.45;cursor:default}
 </style>
 </head>
 <body>
-<div id="app">
-  <header>
-    <div id="logo">団地の異変</div>
-    <div id="counterWrap"><span id="counter">0 / 8</span><span class="label">出口まで</span></div>
-    <button id="muteBtn" type="button" aria-label="音声オン・オフ">🔊</button>
-  </header>
-
-  <div id="scene">
-    <div id="backdrop" aria-hidden="true"></div>
-    <div id="stage" class="stage">
-      <div class="layer on"><img alt="" src="assets/web/base.webp" draggable="false"><div class="flick"></div></div>
-      <div class="layer"><img alt="" src="assets/web/base.webp" draggable="false"><div class="flick"></div></div>
+<div id="scene">
+  <div id="backdrop" aria-hidden="true"></div>
+  <div id="stageBox">
+    <div id="shaker">
+      <div id="stage">
+        <div class="layer on"><img alt="" draggable="false"></div>
+        <div class="layer"><img alt="" draggable="false"></div>
+        <img id="scareImg" alt="" draggable="false">
+      </div>
     </div>
-    <svg id="grainSvg" aria-hidden="true" preserveAspectRatio="none" viewBox="0 0 300 300">
-      <filter id="noiseF"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.55 0"/></filter>
-      <rect width="300" height="300" filter="url(#noiseF)"/>
-    </svg>
-    <div id="vignette"></div>
-    <div id="flash"></div>
   </div>
+  <svg id="grainSvg" aria-hidden="true" preserveAspectRatio="none" viewBox="0 0 300 300">
+    <filter id="noiseF"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.55 0"/></filter>
+    <rect width="300" height="300" filter="url(#noiseF)"/>
+  </svg>
+  <div id="vignette"></div>
+  <div id="flicker"></div>
+  <div id="flash"></div>
+</div>
 
+<div id="hud" class="hide">
+  <div id="areaInfo">
+    <div id="areaNo">AREA 1 / 6</div>
+    <div id="areaName">団地の入口</div>
+    <div id="phaseTag">確認</div>
+  </div>
+  <div id="hudRight">
+    <span id="foundCount">見つけた異変 0</span>
+    <button id="muteBtn" type="button" aria-label="音声オン・オフ">🔊</button>
+  </div>
+</div>
+
+<div id="controls">
   <div id="msg" aria-live="polite"></div>
-
-  <div id="controls">
-    <button id="backBtn" class="judge" type="button" disabled>← 引き返す<small>異変あり</small></button>
-    <button id="fwdBtn" class="judge" type="button" disabled>進む →<small>異変なし</small></button>
+  <div id="btnRow">
+    <button id="backBtn" class="judge" type="button" disabled>← もどる<small>異変がある</small></button>
+    <button id="fwdBtn" class="judge" type="button" disabled>すすむ →<small>異変はない</small></button>
   </div>
+</div>
+
+<div id="card" aria-live="polite">
+  <div id="cardNo">AREA 1 / 6</div>
+  <div id="cardName">団地の入口</div>
+  <div id="cardSub"></div>
+</div>
+
+<div id="reveal" hidden>
+  <div id="revealHead">異変を見逃した</div>
+  <div id="revealBody"></div>
+  <div id="revealFoot">タップで入口からやり直す</div>
 </div>
 
 <div id="titleScreen" class="overlay">
   <div class="panel">
     <h1>団地の異変</h1>
-    <p class="sub">夜の団地の廊下を歩く、異変探しゲーム</p>
-    <p class="how">廊下を歩いて、前の周と違う「異変」があったら引き返す。<br>異変がなければ進む。正しく進んで、8番の出口を目指そう。</p>
+    <p class="sub">夜の団地を歩いて、304号室まで帰る</p>
+    <p class="how">まずはいつもの景色を見て覚える。次に見る景色に<br>異変があれば「もどる」、なければ「すすむ」。</p>
     <button id="startBtn" class="bigbtn" type="button" disabled>読み込み中…</button>
-    <p class="keys">キー操作： → = 進む ／ ← = 引き返す</p>
+    <p class="keys">キー操作： → = すすむ ／ ← = もどる</p>
   </div>
 </div>
 
 <div id="clearScreen" class="overlay" hidden>
   <div class="panel">
-    <h1>出口にたどり着いた！</h1>
-    <p class="sub">夜の廊下を抜けました</p>
-    <p class="result">クリアタイム <b id="clearTime">0:00</b><br>ミス <b id="clearMiss">0</b> 回</p>
-    <a id="shareLink" href="#" target="_blank" rel="noopener">Xでシェア</a><button id="againBtn" class="bigbtn" type="button">もう一度</button>
+    <h1>ただいま。</h1>
+    <p class="sub">304号室にたどり着いた</p>
+    <p class="result">所要時間 <b id="clearTime">0:00</b><br>やり直し <b id="clearMiss">0</b> 回</p>
+    <p class="foundHead">見つけた異変</p>
+    <ul id="foundList"></ul>
+    <a id="shareLink" href="#" target="_blank" rel="noopener">Xでシェア</a><button id="againBtn" class="bigbtn" type="button">もう一度歩く</button>
   </div>
 </div>
 
@@ -209,57 +279,81 @@ button.judge:disabled{opacity:.45;cursor:default}
 'use strict';
 /* ================= データ ================= */
 const IMG_DIR = 'assets/web/';
-const BASE_IMG = IMG_DIR + 'base.webp';
-/* 異変は「表示する写真」＋（任意で）オーバーレイ効果で定義する */
-const ANOMALIES = [
-  { id:'door-open',     name:'ドアが開いて明かりが漏れている', img:IMG_DIR + 'scene-door-open.webp' },
-  { id:'shoes',         name:'小さい赤い靴が出現',             img:IMG_DIR + 'scene-shoes.webp' },
-  { id:'bike-gone',     name:'自転車が消えている',             img:IMG_DIR + 'scene-bike-gone.webp' },
-  { id:'bike-added',    name:'自転車が増えている',             img:IMG_DIR + 'scene-bike-added.webp' },
-  { id:'poster-change', name:'ポスターが変わっている',         img:IMG_DIR + 'scene-poster-change.webp' },
-  { id:'light-off',     name:'蛍光灯が消えている',             img:IMG_DIR + 'scene-light-off.webp' },
-  { id:'curtain-open',  name:'カーテンが開いて明かりが見える', img:IMG_DIR + 'scene-curtain-open.webp' },
-  { id:'silhouette',    name:'窓の向こうに人の影',             img:IMG_DIR + 'scene-silhouette.webp' },
-  { id:'cat',           name:'黒猫が座っている',               img:IMG_DIR + 'scene-cat.webp' },
-  { id:'umbrella-red',  name:'赤い傘が増えている',             img:IMG_DIR + 'scene-umbrella-red.webp' },
-  { id:'doormat',       name:'ドアマットが出現している',       img:IMG_DIR + 'scene-doormat.webp' },
-  { id:'light-flicker', name:'蛍光灯の点滅',                   img:BASE_IMG, fx:'flicker' },
+const AREAS = [
+  { key:'entrance', name:'団地の入口', base:'v2-entrance.webp', ar:1280/853, anomalies:[
+    { id:'entrance-mailbox', name:'ポストが開いて手紙がはみ出している', img:'v2-entrance-mailbox.webp' },
+    { id:'entrance-notice',  name:'掲示板に赤い警告の貼り紙',           img:'v2-entrance-notice.webp' },
+  ]},
+  { key:'stairs', name:'外階段', base:'v2-stairs.webp', ar:1280/853, anomalies:[
+    { id:'stairs-silhouette',   name:'階段の上に人影',       img:'v2-stairs-silhouette.webp' },
+    { id:'stairs-sandals-gone', name:'段のサンダルが消えた', img:'v2-stairs-sandals-gone.webp' },
+  ]},
+  { key:'bikepark', name:'駐輪場', base:'v2-bikepark.webp', ar:1280/720, anomalies:[
+    { id:'bikepark-fallen', name:'自転車が倒れている', img:'v2-bikepark-fallen.webp' },
+    { id:'bikepark-cat',    name:'通路に黒猫がいる',   img:'v2-bikepark-cat.webp' },
+  ]},
+  { key:'garbage', name:'ゴミ置き場', base:'v2-garbage.webp', ar:1280/853, anomalies:[
+    { id:'garbage-crows-gone', name:'屋根のカラスがいない',                 img:'v2-garbage-crows-gone.webp' },
+    { id:'garbage-torn',       name:'ゴミ袋が破れて中身が散らばっている', img:'v2-garbage-torn.webp' },
+  ]},
+  { key:'park', name:'団地の公園', base:'v2-park.webp', ar:1280/853, anomalies:[
+    { id:'park-swing',  name:'誰もいないのにブランコが大きく揺れている', img:'v2-park-swing.webp' },
+    { id:'park-figure', name:'ベンチに人影が座っている',                 img:'v2-park-figure.webp' },
+  ]},
+  { key:'corridor', name:'3階の廊下', base:'base.webp', ar:1280/853, anomalies:[
+    { id:'door-open',  name:'302号室のドアが開いて明かりが漏れている', img:'scene-door-open.webp' },
+    { id:'shoes',      name:'301号室の前に小さな赤い子供靴',           img:'scene-shoes.webp' },
+    { id:'silhouette', name:'窓のカーテンに人影',                       img:'scene-silhouette.webp' },
+    { id:'cat',        name:'廊下の真ん中に黒猫',                       img:'scene-cat.webp' },
+  ]},
 ];
-const ANOMALY_BY_ID = {};
-ANOMALIES.forEach(a => { ANOMALY_BY_ID[a.id] = a; });
+AREAS.forEach(a => { a.base = IMG_DIR + a.base; a.anomalies.forEach(x => { x.img = IMG_DIR + x.img; }); });
+const N_AREAS = AREAS.length;
 
-const WALK_MS = 6000;          // 1周の歩行時間
-const FEEDBACK_OK_MS = 950;    // 正解フィードバック表示
-const FEEDBACK_NG_MS = 2300;   // 不正解（正解開示）表示
+const CARD_MS      = 1300;   // エリア名カード
+const CONFIRM_MS   = 5200;   // 確認パス（この後自動で本番へ）
+const ZOOM_MS      = 5000;   // ゆっくりズーム 1.00 → 1.06
+const ZOOM_TO      = 1.06;
+const OK_MS        = 700;    // 正解フィードバック → カード
+const SCARE_MS     = 900;    // 驚かし演出
+const REVEAL_MS    = 4200;   // 正解開示（タップで早送り）
+const ANOMALY_RATE = 0.5;
 
 /* ================= DOM ================= */
-const sceneEl  = document.getElementById('scene');
-const stageEl  = document.getElementById('stage');
-const backdropEl = document.getElementById('backdrop');
-const layers   = Array.from(stageEl.querySelectorAll('.layer'));
-const startBtn = document.getElementById('startBtn');
-const counterEl= document.getElementById('counter');
-const msgEl    = document.getElementById('msg');
-const flashEl  = document.getElementById('flash');
-const fwdBtn   = document.getElementById('fwdBtn');
-const backBtn  = document.getElementById('backBtn');
-const muteBtn  = document.getElementById('muteBtn');
-const titleScr = document.getElementById('titleScreen');
-const clearScr = document.getElementById('clearScreen');
+const $ = id => document.getElementById(id);
+const stageBox = $('stageBox'), stageEl = $('stage'), shakerEl = $('shaker'), backdropEl = $('backdrop');
+const layers = Array.from(stageEl.querySelectorAll('.layer'));
+const scareImg = $('scareImg'), flashEl = $('flash'), flickerEl = $('flicker');
+const hudEl = $('hud'), areaNoEl = $('areaNo'), areaNameEl = $('areaName'), phaseTagEl = $('phaseTag'), foundCountEl = $('foundCount');
+const msgEl = $('msg'), fwdBtn = $('fwdBtn'), backBtn = $('backBtn'), muteBtn = $('muteBtn');
+const cardEl = $('card'), revealEl = $('reveal');
+const startBtn = $('startBtn'), titleScr = $('titleScreen'), clearScr = $('clearScreen');
 
-/* ================= 音（WebAudio生成） ================= */
-let actx = null;
+/* ================= 音（WebAudio合成。外部音声ファイルなし） ================= */
+let actx = null, master = null, noiseBuf = null;
 let muted = false;
 function ac(){
   if(!actx){
     const AC = window.AudioContext || window.webkitAudioContext;
     if(!AC) return null;
-    actx = new AC();
+    try{
+      actx = new AC();
+      master = actx.createGain(); master.gain.value = 1; master.connect(actx.destination);
+      const len = actx.sampleRate * 1.5;
+      noiseBuf = actx.createBuffer(1, len, actx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for(let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }catch(e){ actx = null; return null; }
   }
   if(actx.state === 'suspended') actx.resume();
   return actx;
 }
-function tone(freq, delay, dur, type, vol, slideTo){
+function env(g, t, vol, att, dur){
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(vol, t + att);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+}
+function tone(freq, delay, dur, type, vol, slideTo, att){
   if(muted) return;
   const ctx = ac(); if(!ctx) return;
   try{
@@ -268,251 +362,390 @@ function tone(freq, delay, dur, type, vol, slideTo){
     o.type = type || 'sine';
     o.frequency.setValueAtTime(freq, t);
     if(slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(vol || 0.12, t + 0.012);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(ctx.destination);
+    env(g, t, vol || 0.12, att || 0.012, dur);
+    o.connect(g); g.connect(master);
     o.start(t); o.stop(t + dur + 0.05);
   }catch(e){ /* 音が出なくてもゲームは続行 */ }
 }
+function noise(delay, dur, vol, filterType, freq, q, freqTo, att){
+  if(muted) return;
+  const ctx = ac(); if(!ctx || !noiseBuf) return;
+  try{
+    const t = ctx.currentTime + delay;
+    const s = ctx.createBufferSource(); s.buffer = noiseBuf;
+    const f = ctx.createBiquadFilter(); f.type = filterType || 'lowpass';
+    f.frequency.setValueAtTime(freq || 1000, t);
+    if(freqTo) f.frequency.exponentialRampToValueAtTime(freqTo, t + dur);
+    f.Q.value = q || 0.7;
+    const g = ctx.createGain(); env(g, t, vol, att || 0.005, dur);
+    s.connect(f); f.connect(g); g.connect(master);
+    s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.05);
+  }catch(e){}
+}
 const sfx = {
-  ok(){ tone(740, 0, 0.10, 'sine', 0.12); tone(1180, 0.09, 0.15, 'sine', 0.11); },
-  ng(){ tone(196, 0, 0.32, 'sawtooth', 0.055, 92); },
-  clear(){ [523,659,784,1047].forEach((f,i)=>tone(f, i*0.11, 0.17, 'triangle', 0.12)); },
+  ok(){ tone(660, 0, 0.12, 'sine', 0.07); tone(990, 0.08, 0.18, 'sine', 0.06); },
+  clear(){ [523,659,784,1047].forEach((f,i)=>tone(f, i*0.13, 0.22, 'triangle', 0.11)); },
+  /* ドアがバタンと閉まる：低い衝撃＋板鳴り＋ラッチ音 */
+  doorSlam(){
+    noise(0, 0.35, 0.55, 'lowpass', 900, 0.8, 120);
+    tone(85, 0, 0.45, 'sine', 0.5, 42);
+    tone(170, 0, 0.18, 'triangle', 0.18, 90);
+    noise(0.06, 0.06, 0.18, 'bandpass', 2600, 4);
+    noise(0.32, 0.9, 0.05, 'lowpass', 400, 0.5);   // 反響
+  },
+  /* カラスの羽ばたき：帯域ノイズのバースト列＋遠い鳴き声 */
+  crows(){
+    for(let i = 0; i < 9; i++){
+      const d = i * 0.085 + Math.random() * 0.02;
+      noise(d, 0.07, 0.22 * (1 - i * 0.06), 'bandpass', 700 + Math.random() * 500, 1.4);
+    }
+    noise(0.9, 0.35, 0.05, 'bandpass', 900, 1);
+    tone(620, 0.35, 0.28, 'sawtooth', 0.045, 430, 0.03);
+    tone(600, 0.72, 0.24, 'sawtooth', 0.035, 410, 0.03);
+  },
+  /* ブランコの軋み：ゆっくり上下する細い金属音（小さく） */
+  creak(){
+    [0, 1.25].forEach(d => {
+      tone(880, d, 0.55, 'sawtooth', 0.018, 1240, 0.18);
+      tone(1240, d + 0.6, 0.5, 'sawtooth', 0.014, 860, 0.15);
+      noise(d, 0.5, 0.012, 'bandpass', 1800, 8);
+    });
+  },
+  /* 蛍光灯のジジッ */
+  buzz(){ [0, 0.18, 0.42, 0.6].forEach(d => tone(120, d, 0.08, 'square', 0.025)); },
+  /* 驚かし（大音量） */
+  scare(){
+    noise(0, 0.9, 0.7, 'lowpass', 6000, 0.6, 300, 0.002);
+    [110, 117, 233, 247, 466].forEach((f,i) => tone(f, 0, 1.1, 'sawtooth', 0.16, f * 0.55, 0.003));
+    tone(1900, 0.02, 0.7, 'square', 0.08, 700, 0.003);
+    tone(55, 0, 1.2, 'sine', 0.5, 30, 0.002);
+  },
 };
-muteBtn.addEventListener('click', () => {
+muteBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
   muted = !muted;
   muteBtn.textContent = muted ? '🔇' : '🔊';
+  if(master) master.gain.value = muted ? 0 : 1;
   if(!muted) ac();
 });
 
-/* ================= 写真のプリロード =================
-   タイトル表示中に全シーン画像を読み込み＆デコードしておき、周の途中で待ちが出ないようにする。 */
-const SCENE_URLS = Array.from(new Set([BASE_IMG].concat(ANOMALIES.map(a => a.img))));
-const imgCache = {};   // url -> Image（参照を保持してキャッシュを維持）
+/* ================= 画像プリロード（タイトル表示中） ================= */
+const ALL_URLS = Array.from(new Set([].concat.apply([], AREAS.map(a => [a.base].concat(a.anomalies.map(x => x.img))))));
+const imgCache = {};
 let assetsReady = false;
 function preloadAll(){
   let done = 0;
-  const update = () => { startBtn.textContent = '読み込み中… ' + done + ' / ' + SCENE_URLS.length; };
+  const update = () => { startBtn.textContent = '読み込み中… ' + done + ' / ' + ALL_URLS.length; };
   update();
-  return Promise.all(SCENE_URLS.map(url => new Promise(resolve => {
+  return Promise.all(ALL_URLS.map(url => new Promise(resolve => {
     const im = new Image();
     im.decoding = 'async';
     imgCache[url] = im;
     const fin = () => { done++; update(); resolve(); };
     im.onload = () => { (im.decode ? im.decode().catch(() => {}) : Promise.resolve()).then(fin); };
-    im.onerror = fin;   // 読めなくてもゲーム自体は開始できるようにする
+    im.onerror = fin;   // 読めなくても開始はできるようにする
     im.src = url;
   }))).then(() => {
     assetsReady = true;
     startBtn.disabled = false;
-    startBtn.textContent = '歩きはじめる';
+    startBtn.textContent = '歩き始める';
   });
 }
 
-/* ================= 廊下の描画（写真レイヤー） =================
-   2枚のレイヤーを交互に使い、周の切り替えでクロスフェード（0.6秒）。
-   歩行中はアクティブなレイヤーをゆっくりズームイン＋わずかにパン。 */
+/* ================= 写真の描画 ================= */
 let activeLayer = 0;
+let curAR = 1280 / 853;
+function measureControls(){
+  const h = $('controls').offsetHeight;
+  document.documentElement.style.setProperty('--ctrlH', h + 'px');
+}
 function fitStage(){
-  const w = sceneEl.clientWidth, h = sceneEl.clientHeight;
-  const ar = 1280 / 853;
-  const MAX_CROP = 1.12;   // 「全体が収まるサイズ」から最大 12% まで拡大して画面を埋める
-  const fit = Math.min(w / 1280, h / 853), cover = Math.max(w / 1280, h / 853);
+  measureControls();
+  const w = stageBox.clientWidth, h = stageBox.clientHeight;
+  const iw = 1280, ih = 1280 / curAR;
+  const MAX_CROP = 1.22;   // 縦長画面で左右の異変が切れないよう、拡大は「全体が収まるサイズ」の 1.22 倍まで
+  const fit = Math.min(w / iw, h / ih), cover = Math.max(w / iw, h / ih);
   const s = Math.min(cover, fit * MAX_CROP);
-  const sw = 1280 * s, sh = 853 * s;
-  stageEl.style.width = sw + 'px';
-  stageEl.style.height = sh + 'px';
-  stageEl.style.transform = 'translate(-50%,-50%)';
+  stageEl.style.width = Math.round(iw * s) + 'px';
+  stageEl.style.height = Math.round(ih * s) + 'px';
 }
-function walkTransform(t){
-  const e = t * t * (3 - 2 * t) * 0.35 + t * 0.65;   // ほぼ等速、出だしだけ少し柔らかく
-  const s = 1 + 0.07 * e;
-  const px = -1.1 * e;                                  // わずかに右奥へパン（%）
-  const py = -0.5 * e + Math.sin(t * Math.PI * 9) * 0.12; // ごく小さな歩行の揺れ
-  return 'translate(' + px.toFixed(3) + '%,' + py.toFixed(3) + '%) scale(' + s.toFixed(4) + ')';
+/* ゆっくりズーム：transition を切って 1.00 に戻し、次フレームで 1.06 へ */
+function startZoom(img){
+  img.style.transition = 'none';
+  img.style.transform = 'scale(1)';
+  void img.offsetWidth;
+  requestAnimationFrame(() => {
+    img.style.transition = 'transform ' + ZOOM_MS + 'ms cubic-bezier(.3,.1,.5,1)';
+    img.style.transform = 'scale(' + ZOOM_TO + ')';
+  });
 }
-function renderCorridor(a, instant){
-  const def = a ? ANOMALY_BY_ID[a] : null;
-  const url = def ? def.img : BASE_IMG;
-  const next = instant ? activeLayer : 1 - activeLayer;
-  const L = layers[next];
-  const img = L.querySelector('img');
-  if(img.getAttribute('src') !== url) img.setAttribute('src', url);
-  L.classList.toggle('flicker', !!(def && def.fx === 'flicker'));
+/* 2枚のレイヤーを交互に使ってクロスフェード（0.5秒） */
+function showPhoto(url, ar, instant){
+  if(ar && ar !== curAR){ curAR = ar; fitStage(); }
   backdropEl.style.backgroundImage = 'url("' + url + '")';
-  L.style.transform = walkTransform(0);
-  if(!instant){
-    L.style.zIndex = '2';
-    layers[activeLayer].style.zIndex = '1';
-    L.classList.add('on');
-    layers[activeLayer].classList.remove('on');
-    activeLayer = next;
+  if(instant){
+    const L = layers[activeLayer], img = L.querySelector('img');
+    img.setAttribute('src', url);
+    layers[1 - activeLayer].classList.remove('on');
+    L.style.transition = 'none'; L.classList.add('on'); void L.offsetWidth; L.style.transition = '';
+    startZoom(img);
+    return;
   }
+  const next = 1 - activeLayer;
+  const L = layers[next], img = L.querySelector('img');
+  img.setAttribute('src', url);
+  L.style.zIndex = '2'; layers[activeLayer].style.zIndex = '1';
+  startZoom(img);
+  L.classList.add('on');
+  layers[activeLayer].classList.remove('on');
+  activeLayer = next;
 }
-function applyWalk(t){ layers[activeLayer].style.transform = walkTransform(t); }
 window.addEventListener('resize', fitStage);
-if(window.ResizeObserver) new ResizeObserver(fitStage).observe(sceneEl);
+if(window.ResizeObserver) new ResizeObserver(fitStage).observe(stageBox);
 
 /* ================= ゲーム状態 ================= */
-let counter = 0;              // 0..8
-let pass = 0;                 // 現在の周（ゲーム開始からの通算）
-let anomalyId = null;         // この周の異変 id（なしは null）
-let phase = 'title';          // title | walking | feedback | clear
+let area = 0;
+let phase = 'title';        // title | card | confirm | live | scare | reveal | clear
+let anomaly = null;         // 本番パスの異変オブジェクト（なしは null）
+let found = [];             // 見抜いた異変名（重複なし・リセットしても保持）
+let startedAt = 0;
 let misses = 0;
-let startAt = 0;
-let freshAttempt = true;      // カウンタ0の最初の周は異変なし（開始時・リセット後）
-let forcedPending = undefined; // forceNextPassAnomaly の予約（undefined = 予約なし）
-let rafId = null;
-let walkStart = 0;
-let feedbackTimer = null;
+let firstEntrance = true;   // ゲーム開始直後の最初の入口は必ず正常
+let forced;                 // forceNextAnomaly の予約（undefined = なし）
+let events = {};            // サプライズイベントの発火済みフラグ（1ゲームで各1回）
+let timers = [];
 
-function setMsg(text, cls){
-  msgEl.textContent = text || '';
-  msgEl.className = cls || '';
+function later(fn, ms){ const id = setTimeout(fn, ms); timers.push(id); return id; }
+function clearTimers(){ timers.forEach(clearTimeout); timers = []; }
+function once(key){ if(events[key]) return false; events[key] = true; return true; }
+
+function setMsg(text, cls){ msgEl.textContent = text || ''; msgEl.className = cls || ''; }
+function setButtons(back, fwd){ backBtn.disabled = !back; fwdBtn.disabled = !fwd; }
+function updateHud(){
+  areaNoEl.textContent = 'AREA ' + (area + 1) + ' / ' + N_AREAS;
+  areaNameEl.textContent = AREAS[area].name;
+  foundCountEl.textContent = '見つけた異変 ' + found.length;
+  const live = phase === 'live';
+  phaseTagEl.textContent = live ? '本番' : '確認';
+  phaseTagEl.className = live ? 'live' : '';
 }
-function updateCounter(){ counterEl.textContent = counter + ' / 8'; }
-function setButtonsEnabled(on){
-  fwdBtn.disabled = !on;
-  backBtn.disabled = !on;
-}
-function flashFx(kind){
+function flashFx(kind, ms){
   flashEl.className = kind;
   flashEl.style.opacity = '1';
-  setTimeout(() => { flashEl.style.opacity = '0'; }, 380);
+  later(() => { flashEl.className = ''; flashEl.style.opacity = '0'; }, ms || 320);
+}
+function flickerFx(){
+  flickerEl.classList.remove('go'); void flickerEl.offsetWidth; flickerEl.classList.add('go');
+  sfx.buzz();
+}
+
+/* --- エリア入場：カード → 確認パス --- */
+function enterArea(i){
+  clearTimers();
+  area = i;
+  anomaly = null;
+  phase = 'card';
+  revealEl.hidden = true;
+  setButtons(false, false);
+  setMsg('');
+  updateHud();
+  $('cardNo').textContent = 'AREA ' + (i + 1) + ' / ' + N_AREAS;
+  $('cardName').textContent = AREAS[i].name;
+  $('cardSub').textContent = i === N_AREAS - 1 ? '304号室はこの先' : '';
+  cardEl.classList.add('on');
+  later(() => { showPhoto(AREAS[i].base, AREAS[i].ar, true); }, 360);  // カードの裏で差し替え
+  later(startConfirm, CARD_MS);
+}
+
+function startConfirm(){
+  clearTimers();
+  cardEl.classList.remove('on');
+  phase = 'confirm';
+  updateHud();
+  setButtons(false, true);
+  setMsg('いつもの景色を覚えよう（タップで本番へ）', '');
+  const key = AREAS[area].key;
+  if(key === 'stairs' && once('stairs-flicker')) later(flickerFx, 250);
+  if(key === 'garbage' && once('garbage-crows')) later(sfx.crows, 200);
+  later(startLive, CONFIRM_MS);
 }
 
 function decideAnomaly(){
-  if(forcedPending !== undefined){
-    const f = forcedPending;
-    forcedPending = undefined;
-    return f; // id または null（固定）
+  const A = AREAS[area];
+  if(forced !== undefined){
+    const f = forced; forced = undefined;
+    if(f === null) return null;
+    const hit = A.anomalies.find(x => x.id === f || x.name === f);
+    if(hit) return hit;
+    console.warn('[danchi] forceNextAnomaly: このエリアにない異変のため無視:', f);
   }
-  if(freshAttempt) return null;
-  if(Math.random() < 0.5){
-    return ANOMALIES[Math.floor(Math.random() * ANOMALIES.length)].id;
-  }
+  if(area === 0 && firstEntrance) return null;
+  if(Math.random() < ANOMALY_RATE) return A.anomalies[Math.floor(Math.random() * A.anomalies.length)];
   return null;
 }
 
-function startPass(){
-  pass++;
-  anomalyId = decideAnomaly();
-  freshAttempt = false;
-  renderCorridor(anomalyId);
-  phase = 'walking';
-  updateCounter();
-  setMsg(pass === 1 ? 'まずは廊下をよく見て、覚えよう' : '', pass === 1 ? 'hint' : '');
-  setButtonsEnabled(true);
-  walkStart = performance.now();
-  cancelAnimationFrame(rafId);
-  const step = (now) => {
-    if(phase !== 'walking') return;
-    const t = Math.min(1, (now - walkStart) / WALK_MS);
-    applyWalk(t);
-    if(t < 1){ rafId = requestAnimationFrame(step); }
-    else { doJudge(false); } // 最後まで歩いたら「進む」扱い
-  };
-  rafId = requestAnimationFrame(step);
+function startLive(){
+  if(phase !== 'confirm') return;
+  clearTimers();
+  anomaly = decideAnomaly();
+  if(area === 0) firstEntrance = false;
+  phase = 'live';
+  updateHud();
+  showPhoto(anomaly ? anomaly.img : AREAS[area].base, AREAS[area].ar, false);
+  setButtons(true, true);
+  setMsg('さっきと同じ？ 異変があれば「もどる」', '');
+  if(AREAS[area].key === 'park' && once('park-creak')) later(sfx.creak, 700);
 }
 
-function doJudge(hasAnomaly){
-  if(phase !== 'walking') return;   // 連打・二重進行を防止
-  phase = 'feedback';
-  cancelAnimationFrame(rafId);
-  setButtonsEnabled(false);
-  const actual = anomalyId !== null;
-  const correct = (hasAnomaly === actual);
-  if(correct){
-    counter++;
-    updateCounter();
+/* --- 判定 --- */
+function doJudge(saysAnomaly){
+  if(phase !== 'live') return;
+  clearTimers();
+  setButtons(false, false);
+  const actual = anomaly !== null;
+  if(saysAnomaly === actual){
+    phase = 'card';   // 遷移中（入力無効）
+    if(actual && found.indexOf(anomaly.name) < 0) found.push(anomaly.name);
+    updateHud();
     flashFx('good');
     sfx.ok();
-    setMsg(actual ? '正解！ 異変を見抜いた' : '正解！ 異変はなかった', 'ok');
-    feedbackTimer = setTimeout(() => {
-      if(counter >= 8) showClear();
-      else startPass();
-    }, FEEDBACK_OK_MS);
+    setMsg(actual ? '見抜いた ― 「' + anomaly.name + '」' : '異変はなかった。先へ進もう', 'ok');
+    if(AREAS[area].key === 'entrance' && once('entrance-door')) later(sfx.doorSlam, 380);
+    later(() => { if(area >= N_AREAS - 1) showClear(); else enterArea(area + 1); }, actual ? OK_MS + 500 : OK_MS);
   }else{
     misses++;
-    flashFx('bad');
-    sfx.ng();
-    setMsg(actual
-      ? '残念… 異変は「' + ANOMALY_BY_ID[anomalyId].name + '」でした'
-      : '残念… 異変はありませんでした', 'ng');
-    counter = 0;
-    updateCounter();
-    freshAttempt = true;   // リセット後の最初の周は異変なし
-    feedbackTimer = setTimeout(startPass, FEEDBACK_NG_MS);
+    scare(actual);
   }
 }
 
+/* --- 驚かし → 開示 → 入口からやり直し --- */
+function scare(actual){
+  phase = 'scare';
+  const A = AREAS[area];
+  const flashSrc = actual ? anomaly.img : A.anomalies[Math.floor(Math.random() * A.anomalies.length)].img;
+  sfx.scare();
+  shakerEl.classList.remove('shake'); void shakerEl.offsetWidth; shakerEl.classList.add('shake');
+  flashFx('bad', 160);
+  scareImg.src = flashSrc;
+  scareImg.style.opacity = '1';
+  later(() => { scareImg.style.opacity = '0'; }, 140);
+  later(() => { scareImg.style.opacity = '.85'; }, 230);
+  later(() => { scareImg.style.opacity = '0'; }, 380);
+  setMsg('');
+  later(() => showReveal(actual), SCARE_MS);
+}
+function showReveal(actual){
+  phase = 'reveal';
+  shakerEl.classList.remove('shake');
+  if(actual){
+    $('revealHead').textContent = '異変を見逃した';
+    $('revealBody').innerHTML = '';
+    $('revealBody').append('異変は「', Object.assign(document.createElement('b'), { textContent: anomaly.name }), '」でした');
+  }else{
+    $('revealHead').textContent = '異変はなかった';
+    $('revealBody').textContent = 'この景色はいつも通り。「すすむ」が正解でした';
+  }
+  revealEl.hidden = false;
+  setMsg('');
+  later(restartFromEntrance, REVEAL_MS);
+}
+function restartFromEntrance(){
+  if(phase !== 'reveal') return;
+  revealEl.hidden = true;
+  enterArea(0);
+}
+
+/* --- クリア --- */
 function fmtTime(ms){
   const s = Math.floor(ms / 1000);
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
-
 function showClear(){
+  clearTimers();
   phase = 'clear';
+  setButtons(false, false);
+  setMsg('');
   sfx.clear();
-  setMsg('', '');
-  const t = fmtTime(Date.now() - startAt);
-  document.getElementById('clearTime').textContent = t;
-  document.getElementById('clearMiss').textContent = misses;
-  const text = '『団地の異変』をクリア！ タイム ' + t + '・ミス ' + misses + ' 回 ｜ 夜の団地で異変探しゲーム #団地の異変';
-  document.getElementById('shareLink').href =
-    'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text);
+  const t = fmtTime(Date.now() - startedAt);
+  $('clearTime').textContent = t;
+  $('clearMiss').textContent = misses;
+  const ul = $('foundList'); ul.innerHTML = '';
+  if(found.length === 0){
+    ul.append(Object.assign(document.createElement('li'), { className:'none', textContent:'（なし ― 今夜は静かな夜だった）' }));
+  }else{
+    found.forEach(n => ul.append(Object.assign(document.createElement('li'), { textContent:n })));
+  }
+  const text = '『団地の異変』夜の団地を歩いて304号室に帰り着いた。所要時間 ' + t + '・見つけた異変 ' + found.length + '個 #団地の異変\nhttps://richend0913.github.io/danchi-no-ihen/';
+  $('shareLink').href = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text);
   clearScr.hidden = false;
 }
 
 function startGame(){
-  if(!assetsReady) return;   // プリロード完了までは開始しない
-  clearTimeout(feedbackTimer);
-  cancelAnimationFrame(rafId);
-  counter = 0; pass = 0; misses = 0;
-  anomalyId = null;
-  freshAttempt = true;
-  forcedPending = undefined;
-  startAt = Date.now();
+  if(!assetsReady) return;
+  clearTimers();
+  found = []; misses = 0; events = {}; forced = undefined;
+  firstEntrance = true;
+  startedAt = Date.now();
   titleScr.hidden = true;
   clearScr.hidden = true;
-  ac(); // ユーザー操作の中で AudioContext を解放
-  startPass();
+  revealEl.hidden = true;
+  hudEl.classList.remove('hide');
+  ac();   // ユーザー操作の中で AudioContext を解放
+  enterArea(0);
 }
 
 /* ================= 入力 ================= */
-fwdBtn.addEventListener('click', () => doJudge(false));
+function goForward(){
+  if(phase === 'confirm') startLive();
+  else if(phase === 'live') doJudge(false);
+  else if(phase === 'reveal') restartFromEntrance();
+}
+fwdBtn.addEventListener('click', goForward);
 backBtn.addEventListener('click', () => doJudge(true));
-document.getElementById('startBtn').addEventListener('click', startGame);
-document.getElementById('againBtn').addEventListener('click', startGame);
+stageBox.addEventListener('click', () => {
+  if(phase === 'confirm') startLive();
+  else if(phase === 'reveal') restartFromEntrance();
+});
+revealEl.addEventListener('click', restartFromEntrance);
+startBtn.addEventListener('click', startGame);
+$('againBtn').addEventListener('click', startGame);
 document.addEventListener('keydown', (e) => {
-  if(e.key === 'ArrowRight' || e.key === 'ArrowLeft'){
-    if(phase === 'walking'){
-      e.preventDefault();
-      doJudge(e.key === 'ArrowLeft');
-    }
+  if(e.key === 'ArrowRight'){
+    if(phase !== 'title' && phase !== 'clear'){ e.preventDefault(); goForward(); }
+  }else if(e.key === 'ArrowLeft'){
+    if(phase === 'live'){ e.preventDefault(); doJudge(true); }
   }else if(e.key === 'Enter'){
-    if(phase === 'title' || phase === 'clear') startGame();
+    if((phase === 'title' && assetsReady) || phase === 'clear'){ e.preventDefault(); startGame(); }
   }
 });
 
 /* ================= 検証用フック ================= */
 window.__DANCHI = {
   state(){
-    return { counter: counter, pass: pass, anomalyId: anomalyId, phase: phase };
+    return {
+      area: area, areaKey: AREAS[area].key, phase: phase,
+      anomaly: anomaly ? anomaly.name : null, anomalyId: anomaly ? anomaly.id : null,
+      found: found.slice(), startedAt: startedAt, misses: misses,
+    };
   },
-  forceNextPassAnomaly(id){
-    if(id === null){ forcedPending = null; return; }
-    if(Object.prototype.hasOwnProperty.call(ANOMALY_BY_ID, id)){ forcedPending = id; }
-    // 未知の id は無視する
+  forceArea(i){
+    i = Math.max(0, Math.min(N_AREAS - 1, i | 0));
+    if(phase === 'title' || phase === 'clear'){
+      const f = forced; startGame(); forced = f;
+    }
+    enterArea(i);
   },
-  judge(hasAnomaly){ doJudge(!!hasAnomaly); },
+  forceNextAnomaly(name){ forced = (name === null) ? null : String(name); },
+  judge(b){
+    if(phase === 'confirm') startLive();
+    doJudge(!!b);
+  },
+  areas(){ return AREAS.map(a => ({ key:a.key, name:a.name, anomalies:a.anomalies.map(x => x.name) })); },
 };
 
-/* 初期表示（タイトルの後ろに基準の廊下を見せる） */
+/* 初期表示：タイトルの後ろに入口の景色 */
 fitStage();
-renderCorridor(null, true);
-updateCounter();
+showPhoto(AREAS[0].base, AREAS[0].ar, true);
 preloadAll();
 </script>
 </body>
