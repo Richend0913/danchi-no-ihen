@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <!--
   『団地の異変』 — 夜の団地の廊下を舞台にした異変探しゲーム（単一HTMLファイル）
+  シーンは写真（assets/web/*.webp）。異変は ANOMALIES 定義（id / name / img / fx）で切り替える。
 
   【遊び方】
   同じ廊下を繰り返し歩きます。前の周と比べて「異変」があったら「引き返す」、
@@ -63,118 +64,35 @@ header{display:flex;align-items:center;justify-content:space-between;gap:8px;pad
 #muteBtn:active{transform:scale(.96)}
 @media (max-width:480px){ #logo{display:none} header{justify-content:space-between} }
 
-/* ===== scene ===== */
+/* ===== scene（写真レイヤー） ===== */
 #scene{
-  position:relative;flex:1;min-height:230px;overflow:hidden;
-  background:linear-gradient(180deg,#26313e 0%,#33424f 34%,#2b3947 80%,#222d39 100%);
+  position:relative;flex:1;min-height:230px;overflow:hidden;background:#05080c;
   border-top:1px solid #3c4f61;border-bottom:1px solid #3c4f61;
 }
-#track{display:flex;height:100%;width:max-content;will-change:transform}
-.unit{
-  position:relative;flex:0 0 auto;width:var(--uw);height:100%;
-  border-right:2px solid rgba(8,13,19,.6);
-  background:linear-gradient(180deg,#475a6c 0%,#3c4e60 55%,#2f4051 87.5%,#1b2530 88%,#151d27 100%);
+/* .stage は写真のアスペクト比(1280x853)を保ったまま #scene を覆うサイズ（JSで算出 = object-fit:cover 相当）。
+   ただし縦長スマホなどで左右の異変（ポスター・傘・靴）が画面外に切れないよう、切り抜きは上限付き。
+   余白は同じ写真をぼかした #backdrop で埋める。 */
+#backdrop{
+  position:absolute;inset:-40px;background:#05080c center/cover no-repeat;
+  filter:blur(22px) brightness(.42) saturate(.8);transition:background-image .6s ease;
 }
-.unit::after{ /* skirting line at floor edge */
-  content:"";position:absolute;left:0;right:0;bottom:12%;height:3px;background:rgba(0,0,0,.35);
+.stage{position:absolute;left:50%;top:50%;width:100%;aspect-ratio:1280/853;overflow:visible}
+.layer{
+  position:absolute;inset:0;opacity:0;transition:opacity .6s ease;
+  transform-origin:50% 46%;will-change:transform,opacity;
 }
-.ceil{position:absolute;top:0;left:0;right:0;height:12%;background:#212a34;border-bottom:2px solid #151c24;z-index:2}
-.lamp{
-  position:absolute;left:50%;top:34%;transform:translateX(-50%);
-  width:54%;height:36%;min-height:7px;border-radius:6px;background:#eaf6ff;
-  box-shadow:0 0 16px 5px rgba(190,225,255,.5);
+.layer.on{opacity:1}
+.layer img{position:absolute;inset:0;width:100%;height:100%;display:block;user-select:none;-webkit-user-drag:none}
+/* light-flicker: 中央の蛍光灯付近だけを暗くする明滅オーバーレイ（座標は写真基準の%） */
+.flick{
+  position:absolute;left:38%;top:-6%;width:28%;height:34%;pointer-events:none;opacity:0;
+  background:radial-gradient(ellipse 50% 50% at 50% 48%,rgba(6,9,13,.88) 0%,rgba(6,9,13,.72) 34%,rgba(6,9,13,.3) 62%,rgba(6,9,13,0) 100%);
 }
-.glow{
-  position:absolute;top:9%;left:50%;transform:translateX(-50%);width:135%;height:78%;
-  background:radial-gradient(ellipse at 50% 0%,rgba(185,222,255,.20),rgba(185,222,255,0) 62%);
-  pointer-events:none;z-index:0;
-}
-.unit.flick .lamp{animation:flick .8s steps(1,end) infinite}
-.unit.flick .glow{animation:flick .8s steps(1,end) infinite}
+.layer.flicker .flick{animation:flick 1.1s steps(1,end) infinite}
 @keyframes flick{
-  0%,100%{opacity:1} 8%{opacity:.15} 10%{opacity:1} 22%{opacity:.3} 24%{opacity:1}
-  57%{opacity:.45} 59%{opacity:1} 78%{opacity:.2} 80%{opacity:1}
+  0%,100%{opacity:0} 7%{opacity:.95} 9%{opacity:0} 21%{opacity:.7} 23%{opacity:0}
+  48%{opacity:.95} 50%{opacity:.2} 52%{opacity:.95} 55%{opacity:0} 78%{opacity:.85} 80%{opacity:0}
 }
-.unit.off .lamp{background:#2c353f;box-shadow:none}
-.unit.off .glow{display:none}
-.darkov{position:absolute;inset:0;background:rgba(3,7,12,.48);z-index:6;pointer-events:none}
-
-/* door */
-.door{
-  position:absolute;left:16%;bottom:12%;width:30%;height:64%;z-index:2;
-  border:3px solid #2b2115;background:#140f08;border-radius:2px;
-}
-.leaf{
-  position:absolute;inset:0;border-radius:1px;
-  background:linear-gradient(180deg,#77644a 0%,#66543c 60%,#584731 100%);
-  box-shadow:inset 0 0 0 2px rgba(0,0,0,.18), inset 0 -14px 18px rgba(0,0,0,.25);
-}
-.leaf.open{transform:translateX(58%)}
-.opening{
-  position:absolute;inset:0;
-  background:linear-gradient(180deg,#c98f3a 0%,#9c6a24 55%,#6e4a16 100%);
-  box-shadow:inset 0 0 22px rgba(255,190,100,.75);
-}
-.plate{
-  position:absolute;top:5%;left:50%;transform:translateX(-50%);
-  background:#e9e5d9;color:#232323;font-weight:700;letter-spacing:.12em;
-  font-size:clamp(10px,2.6vw,13px);padding:1px 7px;border-radius:2px;white-space:nowrap;
-}
-.peek{position:absolute;right:20%;top:44%;width:5px;height:5px;border-radius:50%;background:#241a10}
-.knob{position:absolute;right:9%;top:52%;width:10px;height:10px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#f0deb2,#a8894e);box-shadow:0 1px 2px rgba(0,0,0,.5)}
-.spill{
-  position:absolute;bottom:-4%;left:-14%;width:128%;height:12%;z-index:3;pointer-events:none;
-  background:radial-gradient(ellipse at 50% 100%,rgba(255,190,110,.55),rgba(255,190,110,0) 70%);
-}
-
-/* window */
-.win{
-  position:absolute;right:9%;top:27%;width:27%;height:30%;z-index:1;
-  border:3px solid #202932;background:#0a111d;border-radius:2px;overflow:hidden;
-}
-.win::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;background:rgba(160,180,200,.28)}
-.curt{position:absolute;top:0;height:100%;width:47%}
-.curt.l{left:0;background:linear-gradient(90deg,#5c738e,#48617e);border-right:1px solid rgba(0,0,0,.45)}
-.curt.r{right:0;background:linear-gradient(270deg,#5c738e,#48617e);border-left:1px solid rgba(0,0,0,.45)}
-.win.alt .curt.l{background:linear-gradient(90deg,#a34a3e,#8a3a30)}
-.win.alt .curt.r{background:linear-gradient(270deg,#a34a3e,#8a3a30)}
-
-/* poster */
-.poster{position:absolute;left:2%;top:29%;width:12.5%;height:30%;z-index:1;background:#e6e1d4;padding:4%;box-shadow:0 2px 5px rgba(0,0,0,.35)}
-.poster .art{position:absolute;left:9%;right:9%;top:7%;bottom:20%}
-.poster .cap{position:absolute;left:14%;right:14%;bottom:8%;height:7%;background:rgba(40,40,40,.5)}
-.poster.pA .art{background:radial-gradient(circle at 50% 32%,#f3d98b 0 24%,rgba(243,217,139,0) 26%),linear-gradient(180deg,#cf7440,#8a4a34)}
-.poster.pB .art{background:radial-gradient(circle at 70% 24%,#e9edf3 0 13%,rgba(233,237,243,0) 15%),linear-gradient(180deg,#274b63,#0f1f31)}
-
-/* meter */
-.meter{position:absolute;top:15.5%;right:5%;width:16.5%;z-index:1;background:#c8cfd2;border:2px solid #7d868c;border-radius:4px;padding:5%}
-.gauge{position:relative;width:100%;aspect-ratio:1;border-radius:50%;background:#eef1ee;border:2px solid #98a0a4;overflow:hidden}
-.needle{position:absolute;left:calc(50% - 1px);bottom:50%;width:2px;height:42%;background:#c23b2a;transform-origin:50% 100%;transform:rotate(-42deg)}
-.unit.mspin .needle{animation:nspin .4s linear infinite}
-@keyframes nspin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
-.meter .dig{height:6px;background:#39424a;margin-top:3px;border-radius:2px}
-
-/* slot items */
-.bike{position:absolute;left:51%;bottom:11.2%;width:37%;z-index:2}
-.bike svg{display:block;width:100%;height:auto}
-.ustand{
-  position:absolute;right:4%;bottom:12%;width:10%;height:15%;z-index:2;
-  background:linear-gradient(90deg,#5b6a76,#333d47 55%,#5b6a76);
-  border-radius:2px 2px 7px 7px;box-shadow:inset 0 3px 3px rgba(0,0,0,.5);
-}
-.umbrella{position:absolute;right:2.6%;bottom:25%;width:13.5%;z-index:3}
-.umbrella svg{display:block;width:100%;height:auto}
-.shoes{position:absolute;left:19.5%;bottom:11.7%;width:14%;display:flex;gap:8%;z-index:3}
-.shoes i{flex:1;height:7px;border-radius:45% 55% 50% 50%;background:linear-gradient(180deg,#8a4636,#6e3527);box-shadow:0 1px 1px rgba(0,0,0,.5)}
-.mat{
-  position:absolute;left:15%;bottom:11.55%;width:33%;height:6px;z-index:1;border-radius:2px;
-  background:repeating-linear-gradient(90deg,#5d6d7e 0 6px,#43556a 6px 12px);
-  box-shadow:0 1px 2px rgba(0,0,0,.4);
-}
-.plant{position:absolute;left:2.5%;bottom:11.6%;width:13.5%;z-index:2}
-.plant svg{display:block;width:100%;height:auto}
-.cat{position:absolute;right:1.5%;bottom:11.55%;width:15%;z-index:3}
-.cat svg{display:block;width:100%;height:auto}
 
 /* overlays: grain / vignette / flash */
 #grainSvg{position:absolute;inset:-60px;z-index:8;pointer-events:none;opacity:.055;animation:grainShift .9s steps(4) infinite}
@@ -228,7 +146,8 @@ button.judge:disabled{opacity:.45;cursor:default}
   border:1px solid var(--line);border-radius:12px;padding:13px 30px;cursor:pointer;
   font-size:clamp(16px,4.6vw,19px);font-weight:800;font-family:inherit;letter-spacing:.06em;
 }
-.bigbtn:active{transform:scale(.97)}
+.bigbtn:active:not(:disabled){transform:scale(.97)}
+.bigbtn:disabled{opacity:.55;cursor:default}
 #shareLink{
   display:inline-block;margin-right:10px;padding:13px 22px;border-radius:12px;
   background:#0f141a;border:1px solid var(--line);color:var(--ink);text-decoration:none;
@@ -246,7 +165,11 @@ button.judge:disabled{opacity:.45;cursor:default}
   </header>
 
   <div id="scene">
-    <div id="track"></div>
+    <div id="backdrop" aria-hidden="true"></div>
+    <div id="stage" class="stage">
+      <div class="layer on"><img alt="" src="assets/web/base.webp" draggable="false"><div class="flick"></div></div>
+      <div class="layer"><img alt="" src="assets/web/base.webp" draggable="false"><div class="flick"></div></div>
+    </div>
     <svg id="grainSvg" aria-hidden="true" preserveAspectRatio="none" viewBox="0 0 300 300">
       <filter id="noiseF"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.55 0"/></filter>
       <rect width="300" height="300" filter="url(#noiseF)"/>
@@ -268,7 +191,7 @@ button.judge:disabled{opacity:.45;cursor:default}
     <h1>団地の異変</h1>
     <p class="sub">夜の団地の廊下を歩く、異変探しゲーム</p>
     <p class="how">廊下を歩いて、前の周と違う「異変」があったら引き返す。<br>異変がなければ進む。正しく進んで、8番の出口を目指そう。</p>
-    <button id="startBtn" class="bigbtn" type="button">歩きはじめる</button>
+    <button id="startBtn" class="bigbtn" type="button" disabled>読み込み中…</button>
     <p class="keys">キー操作： → = 進む ／ ← = 引き返す</p>
   </div>
 </div>
@@ -285,21 +208,22 @@ button.judge:disabled{opacity:.45;cursor:default}
 <script>
 'use strict';
 /* ================= データ ================= */
+const IMG_DIR = 'assets/web/';
+const BASE_IMG = IMG_DIR + 'base.webp';
+/* 異変は「表示する写真」＋（任意で）オーバーレイ効果で定義する */
 const ANOMALIES = [
-  { id:'door-open',      name:'ドアが少し開いて明かりが漏れている' },
-  { id:'shoes',          name:'ドアの前に小さい靴が出現している' },
-  { id:'bike-added',     name:'自転車が1台増えている' },
-  { id:'bike-gone',      name:'自転車が消えている' },
-  { id:'poster-change',  name:'ポスターの色・図柄が変わっている' },
-  { id:'light-flicker',  name:'蛍光灯が1つチカチカ点滅している' },
-  { id:'light-off',      name:'蛍光灯が1つ消えている' },
-  { id:'plant',          name:'植木鉢が出現している' },
-  { id:'plate-change',   name:'号室プレートの数字が変わっている' },
-  { id:'curtain-change', name:'窓のカーテンの色が変わっている' },
-  { id:'umbrella-wet',   name:'傘立てに濡れた傘が出現している' },
-  { id:'cat',            name:'通路の端に猫が座っている' },
-  { id:'doormat',        name:'ドアにドアマットが出現している' },
-  { id:'meter-spin',     name:'メーターの針が高速で回っている' },
+  { id:'door-open',     name:'ドアが開いて明かりが漏れている', img:IMG_DIR + 'scene-door-open.webp' },
+  { id:'shoes',         name:'小さい赤い靴が出現',             img:IMG_DIR + 'scene-shoes.webp' },
+  { id:'bike-gone',     name:'自転車が消えている',             img:IMG_DIR + 'scene-bike-gone.webp' },
+  { id:'bike-added',    name:'自転車が増えている',             img:IMG_DIR + 'scene-bike-added.webp' },
+  { id:'poster-change', name:'ポスターが変わっている',         img:IMG_DIR + 'scene-poster-change.webp' },
+  { id:'light-off',     name:'蛍光灯が消えている',             img:IMG_DIR + 'scene-light-off.webp' },
+  { id:'curtain-open',  name:'カーテンが開いて明かりが見える', img:IMG_DIR + 'scene-curtain-open.webp' },
+  { id:'silhouette',    name:'窓の向こうに人の影',             img:IMG_DIR + 'scene-silhouette.webp' },
+  { id:'cat',           name:'黒猫が座っている',               img:IMG_DIR + 'scene-cat.webp' },
+  { id:'umbrella-red',  name:'赤い傘が増えている',             img:IMG_DIR + 'scene-umbrella-red.webp' },
+  { id:'doormat',       name:'ドアマットが出現している',       img:IMG_DIR + 'scene-doormat.webp' },
+  { id:'light-flicker', name:'蛍光灯の点滅',                   img:BASE_IMG, fx:'flicker' },
 ];
 const ANOMALY_BY_ID = {};
 ANOMALIES.forEach(a => { ANOMALY_BY_ID[a.id] = a; });
@@ -308,14 +232,12 @@ const WALK_MS = 6000;          // 1周の歩行時間
 const FEEDBACK_OK_MS = 950;    // 正解フィードバック表示
 const FEEDBACK_NG_MS = 2300;   // 不正解（正解開示）表示
 
-/* ================= SVG 素材 ================= */
-const BIKE_SVG = '<svg viewBox="0 0 100 62" aria-hidden="true"><g fill="none" stroke="#9fb2c1" stroke-width="3" stroke-linecap="round"><circle cx="22" cy="46" r="13"/><circle cx="78" cy="46" r="13"/><path d="M22 46 L44 23 L78 46 L52 46 L39 23 M44 23 L65 23 L78 46 M65 23 L63 16 M39 23 L37 16 M33 16 L43 16"/></g></svg>';
-const PLANT_SVG = '<svg viewBox="0 0 60 72" aria-hidden="true"><g fill="#4d7a4f"><ellipse cx="30" cy="27" rx="6" ry="15"/><ellipse cx="17" cy="31" rx="5" ry="11" transform="rotate(-24 17 31)"/><ellipse cx="43" cy="31" rx="5" ry="11" transform="rotate(24 43 31)"/></g><path d="M17 38 L43 38 L39.5 66 L20.5 66 Z" fill="#8a5a3b"/><rect x="15" y="34" width="30" height="6" rx="2" fill="#755033"/></svg>';
-const CAT_SVG = '<svg viewBox="0 0 60 64" aria-hidden="true"><g fill="#05070a" stroke="rgba(200,220,255,.28)" stroke-width="1"><ellipse cx="29" cy="45" rx="13" ry="16"/><circle cx="29" cy="21" r="10.5"/><polygon points="20.5,15 23.5,2.5 30,11"/><polygon points="37.5,15 34.5,2.5 28,11"/></g><path d="M41 57 Q57 58 52 42" fill="none" stroke="#05070a" stroke-width="5.5" stroke-linecap="round"/></svg>';
-const UMBRELLA_SVG = '<svg viewBox="0 0 44 62" aria-hidden="true"><path d="M3 27 Q22 3 41 27 Q31.5 20.5 22 27 Q12.5 20.5 3 27 Z" fill="#1d2a38"/><path d="M9 21 Q20 8 30 12" fill="none" stroke="rgba(220,240,255,.55)" stroke-width="2.4" stroke-linecap="round"/><rect x="20.8" y="25" width="2.6" height="27" fill="#0e141b"/><path d="M22 52 Q22 59 15.5 58" fill="none" stroke="#0e141b" stroke-width="2.6" stroke-linecap="round"/><circle cx="30" cy="38" r="1.8" fill="rgba(190,225,255,.8)"/><circle cx="13" cy="33" r="1.4" fill="rgba(190,225,255,.7)"/></svg>';
-
 /* ================= DOM ================= */
-const track    = document.getElementById('track');
+const sceneEl  = document.getElementById('scene');
+const stageEl  = document.getElementById('stage');
+const backdropEl = document.getElementById('backdrop');
+const layers   = Array.from(stageEl.querySelectorAll('.layer'));
+const startBtn = document.getElementById('startBtn');
 const counterEl= document.getElementById('counter');
 const msgEl    = document.getElementById('msg');
 const flashEl  = document.getElementById('flash');
@@ -364,51 +286,73 @@ muteBtn.addEventListener('click', () => {
   if(!muted) ac();
 });
 
-/* ================= 廊下の描画 =================
-   ベース状態は固定。異変は「対象ユニットの見た目だけ」を変える。
-   ユニットは2周分（同じ5ユニット×2）を並べ、1周で半分スクロールする。 */
-function unitHTML(i, a){
-  const room  = 101 + i;
-  const plate = (a === 'plate-change' && i === 2) ? '108' : String(room);
-  const doorOpen = (a === 'door-open' && i === 3);
-  const flick = (a === 'light-flicker' && i === 2);
-  const off   = (a === 'light-off' && i === 3);
-  const spin  = (a === 'meter-spin' && i === 4);
-  const cls = 'unit' + (flick ? ' flick' : '') + (off ? ' off' : '') + (spin ? ' mspin' : '');
-  let h = '<div class="' + cls + '" data-u="' + i + '">';
-  h += '<div class="ceil"><div class="lamp"></div></div><div class="glow"></div>';
-  /* ドア */
-  h += '<div class="door">'
-     + (doorOpen ? '<div class="opening"></div>' : '')
-     + '<div class="leaf' + (doorOpen ? ' open' : '') + '">'
-     + '<div class="plate">' + plate + '</div><div class="peek"></div><div class="knob"></div>'
-     + '</div>'
-     + (doorOpen ? '<div class="spill"></div>' : '')
-     + '</div>';
-  /* 窓 */
-  h += '<div class="win' + ((a === 'curtain-change' && i === 1) ? ' alt' : '') + '"><div class="curt l"></div><div class="curt r"></div></div>';
-  /* スロット要素（ベース） */
-  if(i === 1) h += '<div class="poster ' + (a === 'poster-change' ? 'pB' : 'pA') + '"><div class="art"></div><div class="cap"></div></div>';
-  if(i === 4) h += '<div class="meter"><div class="gauge"><div class="needle"></div></div><div class="dig"></div></div>';
-  if(i === 3) h += '<div class="ustand"></div>' + (a === 'umbrella-wet' ? '<div class="umbrella">' + UMBRELLA_SVG + '</div>' : '');
-  const bike = (i === 0 && a !== 'bike-gone') || (i === 2 && a === 'bike-added');
-  if(bike) h += '<div class="bike">' + BIKE_SVG + '</div>';
-  /* スロット要素（異変で出現） */
-  if(a === 'shoes'   && i === 1) h += '<div class="shoes"><i></i><i></i></div>';
-  if(a === 'doormat' && i === 2) h += '<div class="mat"></div>';
-  if(a === 'plant'   && i === 4) h += '<div class="plant">' + PLANT_SVG + '</div>';
-  if(a === 'cat'     && i === 4) h += '<div class="cat">' + CAT_SVG + '</div>';
-  if(off) h += '<div class="darkov"></div>';
-  h += '</div>';
-  return h;
+/* ================= 写真のプリロード =================
+   タイトル表示中に全シーン画像を読み込み＆デコードしておき、周の途中で待ちが出ないようにする。 */
+const SCENE_URLS = Array.from(new Set([BASE_IMG].concat(ANOMALIES.map(a => a.img))));
+const imgCache = {};   // url -> Image（参照を保持してキャッシュを維持）
+let assetsReady = false;
+function preloadAll(){
+  let done = 0;
+  const update = () => { startBtn.textContent = '読み込み中… ' + done + ' / ' + SCENE_URLS.length; };
+  update();
+  return Promise.all(SCENE_URLS.map(url => new Promise(resolve => {
+    const im = new Image();
+    im.decoding = 'async';
+    imgCache[url] = im;
+    const fin = () => { done++; update(); resolve(); };
+    im.onload = () => { (im.decode ? im.decode().catch(() => {}) : Promise.resolve()).then(fin); };
+    im.onerror = fin;   // 読めなくてもゲーム自体は開始できるようにする
+    im.src = url;
+  }))).then(() => {
+    assetsReady = true;
+    startBtn.disabled = false;
+    startBtn.textContent = '歩きはじめる';
+  });
 }
-function renderCorridor(a){
-  let h = '';
-  for(let copy = 0; copy < 2; copy++)
-    for(let i = 0; i < 5; i++) h += unitHTML(i, a);
-  track.innerHTML = h;
-  track.style.transform = 'translateX(0px)';
+
+/* ================= 廊下の描画（写真レイヤー） =================
+   2枚のレイヤーを交互に使い、周の切り替えでクロスフェード（0.6秒）。
+   歩行中はアクティブなレイヤーをゆっくりズームイン＋わずかにパン。 */
+let activeLayer = 0;
+function fitStage(){
+  const w = sceneEl.clientWidth, h = sceneEl.clientHeight;
+  const ar = 1280 / 853;
+  const MAX_CROP = 1.12;   // 「全体が収まるサイズ」から最大 12% まで拡大して画面を埋める
+  const fit = Math.min(w / 1280, h / 853), cover = Math.max(w / 1280, h / 853);
+  const s = Math.min(cover, fit * MAX_CROP);
+  const sw = 1280 * s, sh = 853 * s;
+  stageEl.style.width = sw + 'px';
+  stageEl.style.height = sh + 'px';
+  stageEl.style.transform = 'translate(-50%,-50%)';
 }
+function walkTransform(t){
+  const e = t * t * (3 - 2 * t) * 0.35 + t * 0.65;   // ほぼ等速、出だしだけ少し柔らかく
+  const s = 1 + 0.07 * e;
+  const px = -1.1 * e;                                  // わずかに右奥へパン（%）
+  const py = -0.5 * e + Math.sin(t * Math.PI * 9) * 0.12; // ごく小さな歩行の揺れ
+  return 'translate(' + px.toFixed(3) + '%,' + py.toFixed(3) + '%) scale(' + s.toFixed(4) + ')';
+}
+function renderCorridor(a, instant){
+  const def = a ? ANOMALY_BY_ID[a] : null;
+  const url = def ? def.img : BASE_IMG;
+  const next = instant ? activeLayer : 1 - activeLayer;
+  const L = layers[next];
+  const img = L.querySelector('img');
+  if(img.getAttribute('src') !== url) img.setAttribute('src', url);
+  L.classList.toggle('flicker', !!(def && def.fx === 'flicker'));
+  backdropEl.style.backgroundImage = 'url("' + url + '")';
+  L.style.transform = walkTransform(0);
+  if(!instant){
+    L.style.zIndex = '2';
+    layers[activeLayer].style.zIndex = '1';
+    L.classList.add('on');
+    layers[activeLayer].classList.remove('on');
+    activeLayer = next;
+  }
+}
+function applyWalk(t){ layers[activeLayer].style.transform = walkTransform(t); }
+window.addEventListener('resize', fitStage);
+if(window.ResizeObserver) new ResizeObserver(fitStage).observe(sceneEl);
 
 /* ================= ゲーム状態 ================= */
 let counter = 0;              // 0..8
@@ -421,7 +365,6 @@ let freshAttempt = true;      // カウンタ0の最初の周は異変なし（�
 let forcedPending = undefined; // forceNextPassAnomaly の予約（undefined = 予約なし）
 let rafId = null;
 let walkStart = 0;
-let halfW = 0;
 let feedbackTimer = null;
 
 function setMsg(text, cls){
@@ -457,7 +400,6 @@ function startPass(){
   anomalyId = decideAnomaly();
   freshAttempt = false;
   renderCorridor(anomalyId);
-  halfW = track.scrollWidth / 2;
   phase = 'walking';
   updateCounter();
   setMsg(pass === 1 ? 'まずは廊下をよく見て、覚えよう' : '', pass === 1 ? 'hint' : '');
@@ -467,7 +409,7 @@ function startPass(){
   const step = (now) => {
     if(phase !== 'walking') return;
     const t = Math.min(1, (now - walkStart) / WALK_MS);
-    track.style.transform = 'translateX(' + (-t * halfW) + 'px)';
+    applyWalk(t);
     if(t < 1){ rafId = requestAnimationFrame(step); }
     else { doJudge(false); } // 最後まで歩いたら「進む」扱い
   };
@@ -524,6 +466,7 @@ function showClear(){
 }
 
 function startGame(){
+  if(!assetsReady) return;   // プリロード完了までは開始しない
   clearTimeout(feedbackTimer);
   cancelAnimationFrame(rafId);
   counter = 0; pass = 0; misses = 0;
@@ -567,8 +510,10 @@ window.__DANCHI = {
 };
 
 /* 初期表示（タイトルの後ろに基準の廊下を見せる） */
-renderCorridor(null);
+fitStage();
+renderCorridor(null, true);
 updateCounter();
+preloadAll();
 </script>
 </body>
 </html>
