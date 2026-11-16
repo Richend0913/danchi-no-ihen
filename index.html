@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<!--
+  『団地の異変』 — 夜の団地の廊下を舞台にした異変探しゲーム（単一HTMLファイル）
+
+  【遊び方】
+  同じ廊下を繰り返し歩きます。前の周と比べて「異変」があったら「引き返す」、
+  なければ「進む」。正解するとカウンタが 0 → 8 へ進み、間違えると 0 に戻ります。
+  8 に到達すればクリアです。
+  ・1周目（カウンタ0の最初の周）は必ず異変なし。廊下の基準を覚える周です。
+  ・2周目以降は各周50%の確率で異変が1つ発生します。
+  ・間違えたときは、正解の異変を開示してからリセットするので、学習できます。
+  ・操作: ボタン / タップ / キーボード（→ = 進む、← = 引き返す）
+  ・歩行が最後まで進むと自動で「進む」判定になります。
+
+  【検証用フック】window.__DANCHI
+  ・state() → {counter, pass, anomalyId|null, phase} を返す
+      phase は 'title' | 'walking' | 'feedback' | 'clear'
+  ・forceNextPassAnomaly(id|null) → 次の周の異変を固定する
+      id は異変リストの id（例 'cat'）。null を渡すと「異変なし」を固定する。
+      未指定の周は通常ルール（1周目は無し、それ以外は50%）で決まる。
+  ・judge(hasAnomaly) → 判定を実行する（true = 異変あり「引き返す」）
+-->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>団地の異変｜異変探しゲーム</title>
+<style>
+:root{
+  --uw: clamp(168px, 46vw, 252px);
+  --ink:#dfe7ee;
+  --dim:#8fa5b8;
+  --panel:#131c26;
+  --line:#33465a;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif;
+  background:#0b0f14;color:var(--ink);overflow:hidden;
+  -webkit-tap-highlight-color:transparent;
+}
+#app{display:flex;flex-direction:column;height:100vh;height:100dvh;max-width:860px;margin:0 auto}
+
+/* ===== header ===== */
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px 4px}
+#logo{font-size:13px;letter-spacing:.28em;color:var(--dim);white-space:nowrap}
+#counterWrap{text-align:center;line-height:1}
+#counter{font-size:clamp(28px,7.5vw,42px);font-weight:800;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+#counterWrap .label{display:block;font-size:11px;color:var(--dim);letter-spacing:.42em;margin-top:3px;text-indent:.42em}
+#muteBtn{background:#1b2530;border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:8px 11px;font-size:17px;cursor:pointer;line-height:1}
+#muteBtn:active{transform:scale(.96)}
+@media (max-width:480px){ #logo{display:none} header{justify-content:space-between} }
+
+/* ===== scene ===== */
+#scene{
+  position:relative;flex:1;min-height:230px;overflow:hidden;
+  background:linear-gradient(180deg,#26313e 0%,#33424f 34%,#2b3947 80%,#222d39 100%);
+  border-top:1px solid #3c4f61;border-bottom:1px solid #3c4f61;
+}
+#track{display:flex;height:100%;width:max-content;will-change:transform}
+.unit{
+  position:relative;flex:0 0 auto;width:var(--uw);height:100%;
+  border-right:2px solid rgba(8,13,19,.6);
+  background:linear-gradient(180deg,#475a6c 0%,#3c4e60 55%,#2f4051 87.5%,#1b2530 88%,#151d27 100%);
+}
+.unit::after{ /* skirting line at floor edge */
+  content:"";position:absolute;left:0;right:0;bottom:12%;height:3px;background:rgba(0,0,0,.35);
+}
+.ceil{position:absolute;top:0;left:0;right:0;height:12%;background:#212a34;border-bottom:2px solid #151c24;z-index:2}
+.lamp{
+  position:absolute;left:50%;top:34%;transform:translateX(-50%);
+  width:54%;height:36%;min-height:7px;border-radius:6px;background:#eaf6ff;
+  box-shadow:0 0 16px 5px rgba(190,225,255,.5);
+}
+.glow{
+  position:absolute;top:9%;left:50%;transform:translateX(-50%);width:135%;height:78%;
+  background:radial-gradient(ellipse at 50% 0%,rgba(185,222,255,.20),rgba(185,222,255,0) 62%);
+  pointer-events:none;z-index:0;
+}
+.unit.flick .lamp{animation:flick .8s steps(1,end) infinite}
+.unit.flick .glow{animation:flick .8s steps(1,end) infinite}
+@keyframes flick{
+  0%,100%{opacity:1} 8%{opacity:.15} 10%{opacity:1} 22%{opacity:.3} 24%{opacity:1}
+  57%{opacity:.45} 59%{opacity:1} 78%{opacity:.2} 80%{opacity:1}
+}
+.unit.off .lamp{background:#2c353f;box-shadow:none}
+.unit.off .glow{display:none}
+.darkov{position:absolute;inset:0;background:rgba(3,7,12,.48);z-index:6;pointer-events:none}
+
+/* door */
+.door{
+  position:absolute;left:16%;bottom:12%;width:30%;height:64%;z-index:2;
+  border:3px solid #2b2115;background:#140f08;border-radius:2px;
+}
+.leaf{
+  position:absolute;inset:0;border-radius:1px;
+  background:linear-gradient(180deg,#77644a 0%,#66543c 60%,#584731 100%);
+  box-shadow:inset 0 0 0 2px rgba(0,0,0,.18), inset 0 -14px 18px rgba(0,0,0,.25);
+}
+.leaf.open{transform:translateX(58%)}
+.opening{
+  position:absolute;inset:0;
+  background:linear-gradient(180deg,#c98f3a 0%,#9c6a24 55%,#6e4a16 100%);
+  box-shadow:inset 0 0 22px rgba(255,190,100,.75);
+}
+.plate{
+  position:absolute;top:5%;left:50%;transform:translateX(-50%);
+  background:#e9e5d9;color:#232323;font-weight:700;letter-spacing:.12em;
+  font-size:clamp(10px,2.6vw,13px);padding:1px 7px;border-radius:2px;white-space:nowrap;
+}
+.peek{position:absolute;right:20%;top:44%;width:5px;height:5px;border-radius:50%;background:#241a10}
+.knob{position:absolute;right:9%;top:52%;width:10px;height:10px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#f0deb2,#a8894e);box-shadow:0 1px 2px rgba(0,0,0,.5)}
+.spill{
+  position:absolute;bottom:-4%;left:-14%;width:128%;height:12%;z-index:3;pointer-events:none;
+  background:radial-gradient(ellipse at 50% 100%,rgba(255,190,110,.55),rgba(255,190,110,0) 70%);
+}
+
+/* window */
+.win{
+  position:absolute;right:9%;top:27%;width:27%;height:30%;z-index:1;
+  border:3px solid #202932;background:#0a111d;border-radius:2px;overflow:hidden;
+}
+.win::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;background:rgba(160,180,200,.28)}
+.curt{position:absolute;top:0;height:100%;width:47%}
+.curt.l{left:0;background:linear-gradient(90deg,#5c738e,#48617e);border-right:1px solid rgba(0,0,0,.45)}
+.curt.r{right:0;background:linear-gradient(270deg,#5c738e,#48617e);border-left:1px solid rgba(0,0,0,.45)}
+.win.alt .curt.l{background:linear-gradient(90deg,#a34a3e,#8a3a30)}
+.win.alt .curt.r{background:linear-gradient(270deg,#a34a3e,#8a3a30)}
+
+/* poster */
+.poster{position:absolute;left:2%;top:29%;width:12.5%;height:30%;z-index:1;background:#e6e1d4;padding:4%;box-shadow:0 2px 5px rgba(0,0,0,.35)}
+.poster .art{position:absolute;left:9%;right:9%;top:7%;bottom:20%}
+.poster .cap{position:absolute;left:14%;right:14%;bottom:8%;height:7%;background:rgba(40,40,40,.5)}
+.poster.pA .art{background:radial-gradient(circle at 50% 32%,#f3d98b 0 24%,rgba(243,217,139,0) 26%),linear-gradient(180deg,#cf7440,#8a4a34)}
+.poster.pB .art{background:radial-gradient(circle at 70% 24%,#e9edf3 0 13%,rgba(233,237,243,0) 15%),linear-gradient(180deg,#274b63,#0f1f31)}
+
+/* meter */
+.meter{position:absolute;top:15.5%;right:5%;width:16.5%;z-index:1;background:#c8cfd2;border:2px solid #7d868c;border-radius:4px;padding:5%}
+.gauge{position:relative;width:100%;aspect-ratio:1;border-radius:50%;background:#eef1ee;border:2px solid #98a0a4;overflow:hidden}
+.needle{position:absolute;left:calc(50% - 1px);bottom:50%;width:2px;height:42%;background:#c23b2a;transform-origin:50% 100%;transform:rotate(-42deg)}
+.unit.mspin .needle{animation:nspin .4s linear infinite}
+@keyframes nspin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.meter .dig{height:6px;background:#39424a;margin-top:3px;border-radius:2px}
+
+/* slot items */
+.bike{position:absolute;left:51%;bottom:11.2%;width:37%;z-index:2}
+.bike svg{display:block;width:100%;height:auto}
+.ustand{
+  position:absolute;right:4%;bottom:12%;width:10%;height:15%;z-index:2;
+  background:linear-gradient(90deg,#5b6a76,#333d47 55%,#5b6a76);
+  border-radius:2px 2px 7px 7px;box-shadow:inset 0 3px 3px rgba(0,0,0,.5);
+}
+.umbrella{position:absolute;right:2.6%;bottom:25%;width:13.5%;z-index:3}
+.umbrella svg{display:block;width:100%;height:auto}
+.shoes{position:absolute;left:19.5%;bottom:11.7%;width:14%;display:flex;gap:8%;z-index:3}
+.shoes i{flex:1;height:7px;border-radius:45% 55% 50% 50%;background:linear-gradient(180deg,#8a4636,#6e3527);box-shadow:0 1px 1px rgba(0,0,0,.5)}
+.mat{
+  position:absolute;left:15%;bottom:11.55%;width:33%;height:6px;z-index:1;border-radius:2px;
+  background:repeating-linear-gradient(90deg,#5d6d7e 0 6px,#43556a 6px 12px);
+  box-shadow:0 1px 2px rgba(0,0,0,.4);
+}
+.plant{position:absolute;left:2.5%;bottom:11.6%;width:13.5%;z-index:2}
+.plant svg{display:block;width:100%;height:auto}
+.cat{position:absolute;right:1.5%;bottom:11.55%;width:15%;z-index:3}
+.cat svg{display:block;width:100%;height:auto}
+
+/* overlays: grain / vignette / flash */
+#grainSvg{position:absolute;inset:-60px;z-index:8;pointer-events:none;opacity:.055;animation:grainShift .9s steps(4) infinite}
+@keyframes grainShift{
+  0%{transform:translate(0,0)} 25%{transform:translate(-18px,10px)}
+  50%{transform:translate(12px,-14px)} 75%{transform:translate(-8px,-6px)} 100%{transform:translate(0,0)}
+}
+#vignette{position:absolute;inset:0;z-index:9;pointer-events:none;background:radial-gradient(ellipse at 50% 46%,rgba(0,0,0,0) 52%,rgba(2,5,10,.6) 100%)}
+#flash{position:absolute;inset:0;z-index:10;pointer-events:none;opacity:0;transition:opacity .45s ease}
+#flash.good{background:radial-gradient(ellipse at 50% 45%,rgba(180,255,205,.34),rgba(180,255,205,.10) 70%)}
+#flash.bad{background:radial-gradient(ellipse at 50% 45%,rgba(140,10,10,.42),rgba(30,0,0,.62) 100%)}
+
+/* ===== message & controls ===== */
+#msg{
+  min-height:1.7em;padding:8px 14px 2px;text-align:center;
+  font-size:clamp(15px,4.2vw,19px);font-weight:600;letter-spacing:.02em;
+}
+#msg.ok{color:#9fe8b1}
+#msg.ng{color:#ff9a8a}
+#msg.hint{color:var(--dim);font-weight:500;font-size:clamp(13px,3.6vw,16px)}
+#controls{display:flex;gap:12px;padding:10px 14px calc(14px + env(safe-area-inset-bottom))}
+button.judge{
+  flex:1;padding:15px 8px 12px;border-radius:14px;cursor:pointer;color:var(--ink);
+  font-size:clamp(18px,5vw,23px);font-weight:800;letter-spacing:.03em;line-height:1.15;
+  border:1px solid var(--line);font-family:inherit;
+}
+button.judge small{display:block;font-size:clamp(11px,3vw,13px);font-weight:600;color:#b9c9d8;margin-top:3px;letter-spacing:.14em}
+#backBtn{background:linear-gradient(180deg,#6e3d34,#57302a)}
+#fwdBtn{background:linear-gradient(180deg,#38607a,#2b4c61)}
+button.judge:active:not(:disabled){transform:scale(.98)}
+button.judge:disabled{opacity:.45;cursor:default}
+
+/* ===== title / clear overlays ===== */
+.overlay{
+  position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
+  background:rgba(5,9,14,.78);padding:20px;
+}
+.overlay[hidden]{display:none}
+.panel{
+  max-width:520px;width:100%;text-align:center;background:var(--panel);
+  border:1px solid var(--line);border-radius:18px;padding:30px 24px 26px;
+  box-shadow:0 18px 50px rgba(0,0,0,.55);
+}
+.panel h1{font-size:clamp(30px,8.5vw,44px);letter-spacing:.14em;margin-bottom:8px}
+.panel .sub{color:var(--dim);font-size:clamp(13px,3.8vw,15px);letter-spacing:.08em;margin-bottom:18px}
+.panel .how{font-size:clamp(14px,4.2vw,17px);line-height:1.9;margin-bottom:22px}
+.panel .result{font-size:clamp(16px,4.6vw,20px);line-height:1.8;margin-bottom:22px}
+.panel .result b{font-size:1.25em;font-variant-numeric:tabular-nums}
+.bigbtn{
+  display:inline-block;background:linear-gradient(180deg,#38607a,#2b4c61);color:var(--ink);
+  border:1px solid var(--line);border-radius:12px;padding:13px 30px;cursor:pointer;
+  font-size:clamp(16px,4.6vw,19px);font-weight:800;font-family:inherit;letter-spacing:.06em;
+}
+.bigbtn:active{transform:scale(.97)}
+#shareLink{
+  display:inline-block;margin-right:10px;padding:13px 22px;border-radius:12px;
+  background:#0f141a;border:1px solid var(--line);color:var(--ink);text-decoration:none;
+  font-size:clamp(15px,4.4vw,18px);font-weight:700;
+}
+.panel .keys{margin-top:16px;color:var(--dim);font-size:12.5px;letter-spacing:.06em}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div id="logo">団地の異変</div>
+    <div id="counterWrap"><span id="counter">0 / 8</span><span class="label">出口まで</span></div>
+    <button id="muteBtn" type="button" aria-label="音声オン・オフ">🔊</button>
+  </header>
+
+  <div id="scene">
+    <div id="track"></div>
+    <svg id="grainSvg" aria-hidden="true" preserveAspectRatio="none" viewBox="0 0 300 300">
+      <filter id="noiseF"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.55 0"/></filter>
+      <rect width="300" height="300" filter="url(#noiseF)"/>
+    </svg>
+    <div id="vignette"></div>
+    <div id="flash"></div>
+  </div>
+
+  <div id="msg" aria-live="polite"></div>
+
+  <div id="controls">
+    <button id="backBtn" class="judge" type="button" disabled>← 引き返す<small>異変あり</small></button>
+    <button id="fwdBtn" class="judge" type="button" disabled>進む →<small>異変なし</small></button>
+  </div>
+</div>
+
+<div id="titleScreen" class="overlay">
+  <div class="panel">
+    <h1>団地の異変</h1>
+    <p class="sub">夜の団地の廊下を歩く、異変探しゲーム</p>
+    <p class="how">廊下を歩いて、前の周と違う「異変」があったら引き返す。<br>異変がなければ進む。正しく進んで、8番の出口を目指そう。</p>
+    <button id="startBtn" class="bigbtn" type="button">歩きはじめる</button>
+    <p class="keys">キー操作： → = 進む ／ ← = 引き返す</p>
+  </div>
+</div>
+
+<div id="clearScreen" class="overlay" hidden>
+  <div class="panel">
+    <h1>出口にたどり着いた！</h1>
+    <p class="sub">夜の廊下を抜けました</p>
+    <p class="result">クリアタイム <b id="clearTime">0:00</b><br>ミス <b id="clearMiss">0</b> 回</p>
+    <a id="shareLink" href="#" target="_blank" rel="noopener">Xでシェア</a><button id="againBtn" class="bigbtn" type="button">もう一度</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ================= データ ================= */
+const ANOMALIES = [
+  { id:'door-open',      name:'ドアが少し開いて明かりが漏れている' },
+  { id:'shoes',          name:'ドアの前に小さい靴が出現している' },
+  { id:'bike-added',     name:'自転車が1台増えている' },
+  { id:'bike-gone',      name:'自転車が消えている' },
+  { id:'poster-change',  name:'ポスターの色・図柄が変わっている' },
+  { id:'light-flicker',  name:'蛍光灯が1つチカチカ点滅している' },
+  { id:'light-off',      name:'蛍光灯が1つ消えている' },
+  { id:'plant',          name:'植木鉢が出現している' },
+  { id:'plate-change',   name:'号室プレートの数字が変わっている' },
+  { id:'curtain-change', name:'窓のカーテンの色が変わっている' },
+  { id:'umbrella-wet',   name:'傘立てに濡れた傘が出現している' },
+  { id:'cat',            name:'通路の端に猫が座っている' },
+  { id:'doormat',        name:'ドアにドアマットが出現している' },
+  { id:'meter-spin',     name:'メーターの針が高速で回っている' },
+];
+const ANOMALY_BY_ID = {};
+ANOMALIES.forEach(a => { ANOMALY_BY_ID[a.id] = a; });
+
+const WALK_MS = 6000;          // 1周の歩行時間
+const FEEDBACK_OK_MS = 950;    // 正解フィードバック表示
+const FEEDBACK_NG_MS = 2300;   // 不正解（正解開示）表示
+
+/* ================= SVG 素材 ================= */
+const BIKE_SVG = '<svg viewBox="0 0 100 62" aria-hidden="true"><g fill="none" stroke="#9fb2c1" stroke-width="3" stroke-linecap="round"><circle cx="22" cy="46" r="13"/><circle cx="78" cy="46" r="13"/><path d="M22 46 L44 23 L78 46 L52 46 L39 23 M44 23 L65 23 L78 46 M65 23 L63 16 M39 23 L37 16 M33 16 L43 16"/></g></svg>';
+const PLANT_SVG = '<svg viewBox="0 0 60 72" aria-hidden="true"><g fill="#4d7a4f"><ellipse cx="30" cy="27" rx="6" ry="15"/><ellipse cx="17" cy="31" rx="5" ry="11" transform="rotate(-24 17 31)"/><ellipse cx="43" cy="31" rx="5" ry="11" transform="rotate(24 43 31)"/></g><path d="M17 38 L43 38 L39.5 66 L20.5 66 Z" fill="#8a5a3b"/><rect x="15" y="34" width="30" height="6" rx="2" fill="#755033"/></svg>';
+const CAT_SVG = '<svg viewBox="0 0 60 64" aria-hidden="true"><g fill="#05070a" stroke="rgba(200,220,255,.28)" stroke-width="1"><ellipse cx="29" cy="45" rx="13" ry="16"/><circle cx="29" cy="21" r="10.5"/><polygon points="20.5,15 23.5,2.5 30,11"/><polygon points="37.5,15 34.5,2.5 28,11"/></g><path d="M41 57 Q57 58 52 42" fill="none" stroke="#05070a" stroke-width="5.5" stroke-linecap="round"/></svg>';
+const UMBRELLA_SVG = '<svg viewBox="0 0 44 62" aria-hidden="true"><path d="M3 27 Q22 3 41 27 Q31.5 20.5 22 27 Q12.5 20.5 3 27 Z" fill="#1d2a38"/><path d="M9 21 Q20 8 30 12" fill="none" stroke="rgba(220,240,255,.55)" stroke-width="2.4" stroke-linecap="round"/><rect x="20.8" y="25" width="2.6" height="27" fill="#0e141b"/><path d="M22 52 Q22 59 15.5 58" fill="none" stroke="#0e141b" stroke-width="2.6" stroke-linecap="round"/><circle cx="30" cy="38" r="1.8" fill="rgba(190,225,255,.8)"/><circle cx="13" cy="33" r="1.4" fill="rgba(190,225,255,.7)"/></svg>';
+
+/* ================= DOM ================= */
+const track    = document.getElementById('track');
+const counterEl= document.getElementById('counter');
+const msgEl    = document.getElementById('msg');
+const flashEl  = document.getElementById('flash');
+const fwdBtn   = document.getElementById('fwdBtn');
+const backBtn  = document.getElementById('backBtn');
+const muteBtn  = document.getElementById('muteBtn');
+const titleScr = document.getElementById('titleScreen');
+const clearScr = document.getElementById('clearScreen');
+
+/* ================= 音（WebAudio生成） ================= */
+let actx = null;
+let muted = false;
+function ac(){
+  if(!actx){
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return null;
+    actx = new AC();
+  }
+  if(actx.state === 'suspended') actx.resume();
+  return actx;
+}
+function tone(freq, delay, dur, type, vol, slideTo){
+  if(muted) return;
+  const ctx = ac(); if(!ctx) return;
+  try{
+    const t = ctx.currentTime + delay;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, t);
+    if(slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol || 0.12, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(t); o.stop(t + dur + 0.05);
+  }catch(e){ /* 音が出なくてもゲームは続行 */ }
+}
+const sfx = {
+  ok(){ tone(740, 0, 0.10, 'sine', 0.12); tone(1180, 0.09, 0.15, 'sine', 0.11); },
+  ng(){ tone(196, 0, 0.32, 'sawtooth', 0.055, 92); },
+  clear(){ [523,659,784,1047].forEach((f,i)=>tone(f, i*0.11, 0.17, 'triangle', 0.12)); },
+};
+muteBtn.addEventListener('click', () => {
+  muted = !muted;
+  muteBtn.textContent = muted ? '🔇' : '🔊';
+  if(!muted) ac();
+});
+
+/* ================= 廊下の描画 =================
+   ベース状態は固定。異変は「対象ユニットの見た目だけ」を変える。
+   ユニットは2周分（同じ5ユニット×2）を並べ、1周で半分スクロールする。 */
+function unitHTML(i, a){
+  const room  = 101 + i;
+  const plate = (a === 'plate-change' && i === 2) ? '108' : String(room);
+  const doorOpen = (a === 'door-open' && i === 3);
+  const flick = (a === 'light-flicker' && i === 2);
+  const off   = (a === 'light-off' && i === 3);
+  const spin  = (a === 'meter-spin' && i === 4);
+  const cls = 'unit' + (flick ? ' flick' : '') + (off ? ' off' : '') + (spin ? ' mspin' : '');
+  let h = '<div class="' + cls + '" data-u="' + i + '">';
+  h += '<div class="ceil"><div class="lamp"></div></div><div class="glow"></div>';
+  /* ドア */
+  h += '<div class="door">'
+     + (doorOpen ? '<div class="opening"></div>' : '')
+     + '<div class="leaf' + (doorOpen ? ' open' : '') + '">'
+     + '<div class="plate">' + plate + '</div><div class="peek"></div><div class="knob"></div>'
+     + '</div>'
+     + (doorOpen ? '<div class="spill"></div>' : '')
+     + '</div>';
+  /* 窓 */
+  h += '<div class="win' + ((a === 'curtain-change' && i === 1) ? ' alt' : '') + '"><div class="curt l"></div><div class="curt r"></div></div>';
+  /* スロット要素（ベース） */
+  if(i === 1) h += '<div class="poster ' + (a === 'poster-change' ? 'pB' : 'pA') + '"><div class="art"></div><div class="cap"></div></div>';
+  if(i === 4) h += '<div class="meter"><div class="gauge"><div class="needle"></div></div><div class="dig"></div></div>';
+  if(i === 3) h += '<div class="ustand"></div>' + (a === 'umbrella-wet' ? '<div class="umbrella">' + UMBRELLA_SVG + '</div>' : '');
+  const bike = (i === 0 && a !== 'bike-gone') || (i === 2 && a === 'bike-added');
+  if(bike) h += '<div class="bike">' + BIKE_SVG + '</div>';
+  /* スロット要素（異変で出現） */
+  if(a === 'shoes'   && i === 1) h += '<div class="shoes"><i></i><i></i></div>';
+  if(a === 'doormat' && i === 2) h += '<div class="mat"></div>';
+  if(a === 'plant'   && i === 4) h += '<div class="plant">' + PLANT_SVG + '</div>';
+  if(a === 'cat'     && i === 4) h += '<div class="cat">' + CAT_SVG + '</div>';
+  if(off) h += '<div class="darkov"></div>';
+  h += '</div>';
+  return h;
+}
+function renderCorridor(a){
+  let h = '';
+  for(let copy = 0; copy < 2; copy++)
+    for(let i = 0; i < 5; i++) h += unitHTML(i, a);
+  track.innerHTML = h;
+  track.style.transform = 'translateX(0px)';
+}
+
+/* ================= ゲーム状態 ================= */
+let counter = 0;              // 0..8
+let pass = 0;                 // 現在の周（ゲーム開始からの通算）
+let anomalyId = null;         // この周の異変 id（なしは null）
+let phase = 'title';          // title | walking | feedback | clear
+let misses = 0;
+let startAt = 0;
+let freshAttempt = true;      // カウンタ0の最初の周は異変なし（開始時・リセット後）
+let forcedPending = undefined; // forceNextPassAnomaly の予約（undefined = 予約なし）
+let rafId = null;
+let walkStart = 0;
+let halfW = 0;
+let feedbackTimer = null;
+
+function setMsg(text, cls){
+  msgEl.textContent = text || '';
+  msgEl.className = cls || '';
+}
+function updateCounter(){ counterEl.textContent = counter + ' / 8'; }
+function setButtonsEnabled(on){
+  fwdBtn.disabled = !on;
+  backBtn.disabled = !on;
+}
+function flashFx(kind){
+  flashEl.className = kind;
+  flashEl.style.opacity = '1';
+  setTimeout(() => { flashEl.style.opacity = '0'; }, 380);
+}
+
+function decideAnomaly(){
+  if(forcedPending !== undefined){
+    const f = forcedPending;
+    forcedPending = undefined;
+    return f; // id または null（固定）
+  }
+  if(freshAttempt) return null;
+  if(Math.random() < 0.5){
+    return ANOMALIES[Math.floor(Math.random() * ANOMALIES.length)].id;
+  }
+  return null;
+}
+
+function startPass(){
+  pass++;
+  anomalyId = decideAnomaly();
+  freshAttempt = false;
+  renderCorridor(anomalyId);
+  halfW = track.scrollWidth / 2;
+  phase = 'walking';
+  updateCounter();
+  setMsg(pass === 1 ? 'まずは廊下をよく見て、覚えよう' : '', pass === 1 ? 'hint' : '');
+  setButtonsEnabled(true);
+  walkStart = performance.now();
+  cancelAnimationFrame(rafId);
+  const step = (now) => {
+    if(phase !== 'walking') return;
+    const t = Math.min(1, (now - walkStart) / WALK_MS);
+    track.style.transform = 'translateX(' + (-t * halfW) + 'px)';
+    if(t < 1){ rafId = requestAnimationFrame(step); }
+    else { doJudge(false); } // 最後まで歩いたら「進む」扱い
+  };
+  rafId = requestAnimationFrame(step);
+}
+
+function doJudge(hasAnomaly){
+  if(phase !== 'walking') return;   // 連打・二重進行を防止
+  phase = 'feedback';
+  cancelAnimationFrame(rafId);
+  setButtonsEnabled(false);
+  const actual = anomalyId !== null;
+  const correct = (hasAnomaly === actual);
+  if(correct){
+    counter++;
+    updateCounter();
+    flashFx('good');
+    sfx.ok();
+    setMsg(actual ? '正解！ 異変を見抜いた' : '正解！ 異変はなかった', 'ok');
+    feedbackTimer = setTimeout(() => {
+      if(counter >= 8) showClear();
+      else startPass();
+    }, FEEDBACK_OK_MS);
+  }else{
+    misses++;
+    flashFx('bad');
+    sfx.ng();
+    setMsg(actual
+      ? '残念… 異変は「' + ANOMALY_BY_ID[anomalyId].name + '」でした'
+      : '残念… 異変はありませんでした', 'ng');
+    counter = 0;
+    updateCounter();
+    freshAttempt = true;   // リセット後の最初の周は異変なし
+    feedbackTimer = setTimeout(startPass, FEEDBACK_NG_MS);
+  }
+}
+
+function fmtTime(ms){
+  const s = Math.floor(ms / 1000);
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+function showClear(){
+  phase = 'clear';
+  sfx.clear();
+  setMsg('', '');
+  const t = fmtTime(Date.now() - startAt);
+  document.getElementById('clearTime').textContent = t;
+  document.getElementById('clearMiss').textContent = misses;
+  const text = '『団地の異変』をクリア！ タイム ' + t + '・ミス ' + misses + ' 回 ｜ 夜の団地で異変探しゲーム #団地の異変';
+  document.getElementById('shareLink').href =
+    'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text);
+  clearScr.hidden = false;
+}
+
+function startGame(){
+  clearTimeout(feedbackTimer);
+  cancelAnimationFrame(rafId);
+  counter = 0; pass = 0; misses = 0;
+  anomalyId = null;
+  freshAttempt = true;
+  forcedPending = undefined;
+  startAt = Date.now();
+  titleScr.hidden = true;
+  clearScr.hidden = true;
+  ac(); // ユーザー操作の中で AudioContext を解放
+  startPass();
+}
+
+/* ================= 入力 ================= */
+fwdBtn.addEventListener('click', () => doJudge(false));
+backBtn.addEventListener('click', () => doJudge(true));
+document.getElementById('startBtn').addEventListener('click', startGame);
+document.getElementById('againBtn').addEventListener('click', startGame);
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'ArrowRight' || e.key === 'ArrowLeft'){
+    if(phase === 'walking'){
+      e.preventDefault();
+      doJudge(e.key === 'ArrowLeft');
+    }
+  }else if(e.key === 'Enter'){
+    if(phase === 'title' || phase === 'clear') startGame();
+  }
+});
+
+/* ================= 検証用フック ================= */
+window.__DANCHI = {
+  state(){
+    return { counter: counter, pass: pass, anomalyId: anomalyId, phase: phase };
+  },
+  forceNextPassAnomaly(id){
+    if(id === null){ forcedPending = null; return; }
+    if(Object.prototype.hasOwnProperty.call(ANOMALY_BY_ID, id)){ forcedPending = id; }
+    // 未知の id は無視する
+  },
+  judge(hasAnomaly){ doJudge(!!hasAnomaly); },
+};
+
+/* 初期表示（タイトルの後ろに基準の廊下を見せる） */
+renderCorridor(null);
+updateCounter();
+</script>
+</body>
+</html>
